@@ -1,0 +1,28 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^16.2",
+    "react": "^19",
+    "react-dom": "^19",
+    "@supabase/supabase-js": "^2",
+    "@supabase/ssr": "^0.6",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5.7",
+    "eslint": "^9",
+    "eslint-config-next": "^16.2"
+  }
+}
