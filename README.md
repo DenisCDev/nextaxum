@@ -20,6 +20,7 @@ Deploy: Frontend on **Vercel**, Backend on **Railway**, DB on **Supabase**.
 - [Configuration](#configuration)
 - [Local Development](#local-development)
 - [Deployment](#deployment)
+- [SQL Query Performance & RLS Security Guide](#sql-query-performance--rls-security-guide)
 - [Design Decisions & Rationale](#design-decisions--rationale)
 - [Official Documentation Sources](#official-documentation-sources)
 
@@ -699,6 +700,745 @@ See: [Rust Edition Guide — 2024](https://doc.rust-lang.org/edition-guide/rust-
 
 ---
 
+## SQL Query Performance & RLS Security Guide
+
+> **Goal**: World-class PostgreSQL performance and security. Every technique below is sourced from official PostgreSQL docs, Supabase docs, and battle-tested production patterns.
+
+### Table of Contents (this section)
+
+- [EXPLAIN ANALYZE — Reading Query Plans](#explain-analyze--reading-query-plans)
+- [Index Strategy](#index-strategy)
+- [Query Optimization Patterns](#query-optimization-patterns)
+- [Row Level Security (RLS)](#row-level-security-rls)
+- [RLS Performance Optimization](#rls-performance-optimization)
+- [RLS Security Hardening](#rls-security-hardening)
+- [Connection Pooling Deep Dive](#connection-pooling-deep-dive)
+- [How This Template Applies These Principles](#how-this-template-applies-these-principles)
+- [RLS Decision: Application-Layer vs Database-Layer](#rls-decision-application-layer-vs-database-layer)
+- [Checklist: Adding a New Table](#checklist-adding-a-new-table)
+
+---
+
+### EXPLAIN ANALYZE — Reading Query Plans
+
+Always profile queries before and after optimization. Use `EXPLAIN (ANALYZE, BUFFERS)` to see actual execution stats.
+
+```sql
+-- Basic: shows estimated plan
+EXPLAIN SELECT * FROM items WHERE user_id = 'abc' ORDER BY created_at DESC LIMIT 20;
+
+-- Full: executes query and shows actual time, rows, buffer I/O
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM items
+WHERE user_id = '550e8400-e29b-41d4-a716-446655440000'
+ORDER BY created_at DESC, id DESC
+LIMIT 21;
+```
+
+**How to read the output:**
+
+| Field | Meaning |
+|-------|---------|
+| `Seq Scan` | Full table scan — bad for large tables, needs an index |
+| `Index Scan` | Uses index to find rows — good for selective queries |
+| `Index Only Scan` | Answers query entirely from index — best possible |
+| `Bitmap Index Scan` | Two-phase: index finds locations, then heap fetches — good for moderate selectivity |
+| `cost=startup..total` | Arbitrary units (1.0 = one sequential page read) |
+| `rows=N` | Estimated output rows (not scanned rows) |
+| `actual time=start..end` | Real milliseconds |
+| `loops=N` | Times this node executed — multiply by time for true cost |
+| `Buffers: shared hit=N` | Pages found in RAM cache (good) |
+| `Buffers: shared read=N` | Pages read from disk (minimize this) |
+| `Rows Removed by Filter` | Rows scanned but discarded — high = needs better index |
+
+**This template's pagination query** should show `Index Scan using idx_items_user_id_created_at_id` with zero `Rows Removed by Filter`. If you see `Seq Scan`, the index is missing or the planner chose to ignore it (run `ANALYZE items;` to update statistics).
+
+> **Source**: [PostgreSQL Docs — Using EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html)
+
+---
+
+### Index Strategy
+
+#### Index Types — When to Use Each
+
+| Type | Best For | Operators | Example |
+|------|----------|-----------|---------|
+| **B-tree** (default) | Equality, range, sorting, LIKE 'prefix%' | `< <= = >= > BETWEEN IN IS NULL` | `CREATE INDEX idx ON t (col);` |
+| **Hash** | Equality only, large values | `=` | `CREATE INDEX idx ON t USING hash (col);` |
+| **GIN** | Arrays, JSONB, full-text search | `@> <@ && ?` | `CREATE INDEX idx ON t USING gin (jsonb_col);` |
+| **GiST** | Geometry, ranges, nearest-neighbor | `@> <@ && <<` | `CREATE INDEX idx ON t USING gist (geo_col);` |
+| **BRIN** | Very large tables, naturally ordered data (timestamps) | `< <= = >= >` | `CREATE INDEX idx ON t USING brin (created_at);` |
+| **SP-GiST** | Quadtrees, k-d trees, radix trees | varies | `CREATE INDEX idx ON t USING spgist (col);` |
+
+> **Source**: [PostgreSQL Docs — Index Types](https://www.postgresql.org/docs/current/indexes-types.html)
+
+#### Composite Indexes — Column Order Matters
+
+For B-tree composite indexes, **leftmost columns are most selective**. The index `(user_id, created_at DESC, id DESC)` supports:
+
+```sql
+-- ✅ Uses index fully (equality on col1, range on col2+col3)
+WHERE user_id = $1 ORDER BY created_at DESC, id DESC
+
+-- ✅ Uses index (equality on col1 only)
+WHERE user_id = $1
+
+-- ❌ Cannot use index efficiently (missing col1)
+WHERE created_at > '2024-01-01'
+```
+
+**Rule**: Equality columns first, then range/sort columns, in the same order as your `ORDER BY`.
+
+> **Source**: [PostgreSQL Docs — Multicolumn Indexes](https://www.postgresql.org/docs/current/indexes-multicolumn.html)
+
+#### Covering Indexes (INCLUDE) — Index-Only Scans
+
+Add payload columns with `INCLUDE` so PostgreSQL can answer queries entirely from the index, avoiding heap access:
+
+```sql
+-- Covering index: title is payload, not a search key
+CREATE INDEX idx_items_covering
+    ON items (user_id, created_at DESC, id DESC)
+    INCLUDE (title, description);
+```
+
+This enables **Index Only Scan** for queries selecting `id, title, description` with the right `WHERE`/`ORDER BY`. Trade-off: larger index size, slower writes.
+
+> Use `INCLUDE` only for columns frequently selected but never filtered/sorted on. Only B-tree, GiST, and SP-GiST support it.
+
+> **Source**: [PostgreSQL Docs — Index-Only Scans and Covering Indexes](https://www.postgresql.org/docs/current/indexes-index-only-scans.html)
+
+#### Partial Indexes — Index Only What You Query
+
+```sql
+-- Only index active items — smaller, faster
+CREATE INDEX idx_items_active ON items (user_id, created_at DESC)
+    WHERE deleted_at IS NULL;
+
+-- Only index unprocessed orders — dramatically smaller
+CREATE INDEX idx_orders_pending ON orders (created_at)
+    WHERE status = 'pending';
+```
+
+**When to use**: When queries consistently filter on a fixed condition and most rows don't match it.
+
+> **Source**: [PostgreSQL Docs — Partial Indexes](https://www.postgresql.org/docs/current/indexes-partial.html)
+
+#### BRIN for Time-Series Data
+
+For append-only or rarely-updated tables with monotonically increasing timestamps, BRIN indexes are **10x+ smaller** than B-tree:
+
+```sql
+-- BRIN: stores min/max per 128-page block range (default)
+CREATE INDEX idx_items_created_brin ON items USING brin (created_at);
+```
+
+Trade-off: less precise than B-tree (may scan extra blocks), but dramatically smaller. Best for audit logs, event tables, and analytics data.
+
+> **Source**: [Supabase Docs — Query Optimization](https://supabase.com/docs/guides/database/query-optimization)
+
+#### Anti-Patterns
+
+| Anti-Pattern | Why It's Bad | Fix |
+|-------------|-------------|-----|
+| `SELECT *` | Fetches unnecessary columns, prevents index-only scans | Select only needed columns |
+| Missing indexes on foreign keys | Slow JOINs and CASCADE deletes | `CREATE INDEX idx ON child (parent_id);` |
+| Over-indexing | Slows writes, wastes storage, confuses planner | Only index columns in WHERE/JOIN/ORDER BY |
+| Function in WHERE | `WHERE LOWER(email) = $1` can't use B-tree on `email` | Use expression index: `CREATE INDEX idx ON t (LOWER(email));` |
+| Implicit type casting | `WHERE int_col = '123'` may prevent index use | Match types exactly |
+| Not running ANALYZE | Planner uses stale statistics → bad plans | `ANALYZE table_name;` after bulk changes |
+
+---
+
+### Query Optimization Patterns
+
+#### 1. Cursor Pagination (used in this template)
+
+```sql
+-- ✅ O(1) per page via index — stable under concurrent writes
+SELECT id, user_id, title, description, created_at, updated_at
+FROM items
+WHERE user_id = $1
+  AND (created_at, id) < ($2, $3)   -- cursor condition
+ORDER BY created_at DESC, id DESC
+LIMIT $4;
+
+-- ❌ O(n) offset — rescans skipped rows, unstable
+SELECT * FROM items ORDER BY created_at DESC OFFSET 1000 LIMIT 50;
+```
+
+> **Source**: [Use The Index, Luke — No Offset](https://use-the-index-luke.com/no-offset)
+
+#### 2. LIMIT + 1 Trick (used in this template)
+
+Fetch `limit + 1` rows. If you get more than `limit`, there are more pages — no separate `COUNT(*)` needed:
+
+```sql
+-- Fetch 21 rows to know if page 2 exists, return only 20 to client
+SELECT ... LIMIT $limit + 1;
+```
+
+#### 3. COALESCE for Partial Updates (used in this template)
+
+```sql
+-- Only update fields the client sent (non-NULL), keep existing values for the rest
+UPDATE items
+SET title = COALESCE($3, title),
+    description = COALESCE($4, description),
+    updated_at = now()
+WHERE id = $1 AND user_id = $2
+RETURNING *;
+```
+
+#### 4. Avoid N+1 Queries
+
+```sql
+-- ❌ N+1: one query per item
+for item in items:
+    SELECT * FROM tags WHERE item_id = item.id;
+
+-- ✅ Batch: one query for all
+SELECT * FROM tags WHERE item_id = ANY($1::uuid[]);
+```
+
+In sqlx/Rust:
+
+```rust
+let ids: Vec<Uuid> = items.iter().map(|i| i.id).collect();
+sqlx::query_as!(Tag, "SELECT * FROM tags WHERE item_id = ANY($1)", &ids)
+    .fetch_all(pool).await?;
+```
+
+#### 5. Materialized Views for Expensive Aggregations
+
+```sql
+CREATE MATERIALIZED VIEW user_stats AS
+SELECT user_id, COUNT(*) as item_count, MAX(created_at) as last_item
+FROM items
+GROUP BY user_id;
+
+-- Refresh periodically (not on every write)
+REFRESH MATERIALIZED VIEW CONCURRENTLY user_stats;
+
+-- Index the materialized view
+CREATE UNIQUE INDEX idx_user_stats_uid ON user_stats (user_id);
+```
+
+> **Source**: [PostgreSQL Docs — Materialized Views](https://www.postgresql.org/docs/current/rules-materializedviews.html)
+
+#### 6. Compile-Time Checked Queries (used in this template)
+
+sqlx's `query_as!()` macro verifies SQL against the database schema at compile time — column names, types, and query validity are all checked before the code compiles:
+
+```rust
+// Typo in column name? Won't compile.
+// Wrong type? Won't compile.
+// Missing column? Won't compile.
+sqlx::query_as!(Item,
+    "SELECT id, user_id, title, description, created_at, updated_at
+     FROM items WHERE id = $1 AND user_id = $2",
+    id, user_id
+).fetch_optional(pool).await?;
+```
+
+This eliminates an entire class of runtime SQL errors. Combined with parameterized queries, this provides **zero SQL injection risk** with compile-time guarantees.
+
+> **Source**: [SQLx Docs](https://docs.rs/sqlx/0.8/sqlx/)
+
+---
+
+### Row Level Security (RLS)
+
+RLS adds `WHERE` clauses to every query at the database level. It's PostgreSQL's built-in mechanism for row-level authorization.
+
+#### Fundamentals
+
+```sql
+-- 1. Enable RLS (required — without this, policies are ignored)
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
+
+-- 2. Without policies, RLS = default deny (no rows visible)
+-- 3. Create policies to grant access
+```
+
+#### Policy Types
+
+```sql
+-- SELECT: controls which rows are visible (USING clause)
+CREATE POLICY "Users see own items" ON items
+    FOR SELECT TO authenticated
+    USING ( (select auth.uid()) = user_id );
+
+-- INSERT: validates new rows (WITH CHECK clause)
+CREATE POLICY "Users create own items" ON items
+    FOR INSERT TO authenticated
+    WITH CHECK ( (select auth.uid()) = user_id );
+
+-- UPDATE: USING filters existing rows, WITH CHECK validates changes
+CREATE POLICY "Users update own items" ON items
+    FOR UPDATE TO authenticated
+    USING ( (select auth.uid()) = user_id )
+    WITH CHECK ( (select auth.uid()) = user_id );
+
+-- DELETE: USING clause only
+CREATE POLICY "Users delete own items" ON items
+    FOR DELETE TO authenticated
+    USING ( (select auth.uid()) = user_id );
+```
+
+#### PERMISSIVE vs RESTRICTIVE
+
+```sql
+-- PERMISSIVE (default): combined with OR — expands access
+CREATE POLICY "Users see own" ON items FOR SELECT
+    USING (user_id = (select auth.uid()));
+
+CREATE POLICY "Admins see all" ON items FOR SELECT
+    USING ((select auth.jwt()->>'role') = 'admin');
+-- Result: user sees own OR is admin
+
+-- RESTRICTIVE: combined with AND — narrows access
+CREATE POLICY "MFA required" ON items
+    AS RESTRICTIVE FOR UPDATE TO authenticated
+    USING ((select auth.jwt()->>'aal') = 'aal2');
+-- Result: must pass a PERMISSIVE policy AND this restriction
+```
+
+**Combination formula**: `(permissive1 OR permissive2 ...) AND restrictive1 AND restrictive2 ...`
+
+> **Source**: [PostgreSQL Docs — CREATE POLICY](https://www.postgresql.org/docs/current/sql-createpolicy.html), [PostgreSQL Docs — Row Security Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
+
+#### Auto-Enable RLS on New Tables
+
+Prevent forgetting to enable RLS on future tables:
+
+```sql
+CREATE OR REPLACE FUNCTION rls_auto_enable()
+RETURNS EVENT_TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+AS $$
+DECLARE cmd record;
+BEGIN
+  FOR cmd IN SELECT * FROM pg_event_trigger_ddl_commands()
+    WHERE command_tag IN ('CREATE TABLE', 'CREATE TABLE AS')
+      AND schema_name = 'public'
+  LOOP
+    EXECUTE format('ALTER TABLE IF EXISTS %s ENABLE ROW LEVEL SECURITY', cmd.object_identity);
+    RAISE LOG 'rls_auto_enable: enabled RLS on %', cmd.object_identity;
+  END LOOP;
+END;
+$$;
+
+CREATE EVENT TRIGGER ensure_rls ON ddl_command_end
+    WHEN TAG IN ('CREATE TABLE', 'CREATE TABLE AS')
+    EXECUTE FUNCTION rls_auto_enable();
+```
+
+> **Source**: [Supabase Docs — Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
+
+---
+
+### RLS Performance Optimization
+
+RLS policies run on every row. Unoptimized policies can turn millisecond queries into seconds. These optimizations come from Supabase's official benchmarks.
+
+#### 1. Wrap `auth.uid()` in SELECT — 94% faster
+
+```sql
+-- ❌ SLOW: auth.uid() called per row (179ms on 100k rows)
+USING ( auth.uid() = user_id );
+
+-- ✅ FAST: auth.uid() cached via initPlan (9ms on 100k rows)
+USING ( (select auth.uid()) = user_id );
+```
+
+The `(select ...)` wrapper tells PostgreSQL to evaluate the function **once** and cache the result (initPlan), instead of calling it per-row.
+
+> **Benchmark**: 179ms → 9ms (94.97% improvement). For security definer functions: 178,000ms → 12ms (99.993% improvement).
+
+#### 2. Index Columns Used in Policies — 99% faster
+
+```sql
+-- Policy checks user_id → add B-tree index on user_id
+CREATE INDEX idx_items_user_id ON items USING btree (user_id);
+```
+
+> **Benchmark**: 171ms → <0.1ms (99.94% improvement on 100k rows).
+
+#### 3. Always Specify Roles with TO — 99% faster for anon
+
+```sql
+-- ❌ Applies to all roles including anon (runs policy for everyone)
+CREATE POLICY "select" ON items FOR SELECT
+    USING ( (select auth.uid()) = user_id );
+
+-- ✅ Only runs for authenticated role — anon skips immediately
+CREATE POLICY "select" ON items FOR SELECT
+    TO authenticated
+    USING ( (select auth.uid()) = user_id );
+```
+
+> **Benchmark**: When anon accesses: 170ms → <0.1ms (99.78% improvement).
+
+#### 4. Minimize Joins in Policies — 99% faster
+
+```sql
+-- ❌ SLOW: joins source table to auth table (9,000ms)
+USING (
+  (select auth.uid()) IN (
+    SELECT user_id FROM team_user WHERE team_user.team_id = team_id
+  )
+);
+
+-- ✅ FAST: fetches user's teams first, then checks membership (20ms)
+USING (
+  team_id IN (
+    SELECT team_id FROM team_user WHERE user_id = (select auth.uid())
+  )
+);
+```
+
+> **Benchmark**: 9,000ms → 20ms (99.78% improvement).
+
+#### 5. Security Definer Functions for Complex Logic
+
+For policies that check multiple tables, wrap in a `SECURITY DEFINER` function (bypasses RLS on the lookup table):
+
+```sql
+-- Function in private schema (never exposed to API)
+CREATE FUNCTION private.user_has_role(required_role text)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = (select auth.uid())
+      AND role = required_role
+  );
+END;
+$$;
+
+-- Policy uses the cached function result
+CREATE POLICY "Editors can update" ON articles
+    FOR UPDATE TO authenticated
+    USING ( (select private.user_has_role('editor')) );
+```
+
+> **Critical**: Always put security definer functions in a **private schema** (not exposed via PostgREST/Supabase API). Always `SET search_path = ''` to prevent search path injection.
+
+#### 6. Add Client-Side Filters Even with RLS
+
+```javascript
+// ❌ Relies only on RLS to filter (planner has less info)
+const { data } = await supabase.from('items').select()
+
+// ✅ Explicit filter helps planner create better execution plan
+const { data } = await supabase.from('items').select().eq('user_id', userId)
+```
+
+> **Benchmark**: 171ms → 9ms (94.74% improvement).
+
+#### Supabase Database Advisor Lint: `auth_rls_initplan`
+
+Supabase's built-in **Security Advisor** (Dashboard → Database → Security Advisor) includes lint `0003_auth_rls_initplan` that automatically detects `auth.uid()` and `auth.jwt()` calls not wrapped in `(select ...)`. Enable this check and fix all warnings.
+
+> **Source**: [Supabase — RLS Performance Best Practices](https://supabase.com/docs/guides/database/postgres/row-level-security), [Supabase — Performance Advisors](https://supabase.com/docs/guides/database/database-advisors), [GaryAustin1/RLS-Performance Benchmarks](https://github.com/GaryAustin1/RLS-Performance)
+
+---
+
+### RLS Security Hardening
+
+#### 1. Never Trust `raw_user_meta_data` for Authorization
+
+```sql
+-- ❌ VULNERABLE: users can update their own raw_user_meta_data
+USING ( auth.jwt()->'user_metadata'->>'role' = 'admin' );
+
+-- ✅ SAFE: raw_app_meta_data is immutable by users
+USING ( auth.jwt()->'app_metadata'->>'role' = 'admin' );
+```
+
+> `raw_user_meta_data` is editable by the user via `supabase.auth.updateUser()`. Only `raw_app_meta_data` (set via service role or admin API) is safe for authorization decisions.
+
+#### 2. Handle NULL from `auth.uid()`
+
+When no user is authenticated, `auth.uid()` returns `NULL`. Since `NULL = anything` is always `FALSE`, unauthenticated users get no rows — but be explicit:
+
+```sql
+-- Explicit NULL check (defense-in-depth)
+USING ( auth.uid() IS NOT NULL AND (select auth.uid()) = user_id )
+```
+
+#### 3. Policies on Every Table — Default Deny
+
+RLS with no policies = **no access** (default deny). But if you forget to enable RLS, the table is **fully public** via the Supabase API:
+
+```sql
+-- Check all tables without RLS enabled
+SELECT schemaname, tablename
+FROM pg_tables
+WHERE schemaname = 'public'
+  AND tablename NOT IN (
+    SELECT tablename FROM pg_tables t
+    JOIN pg_class c ON c.relname = t.tablename
+    WHERE c.relrowsecurity = true
+  );
+```
+
+Use the auto-enable trigger (above) and Supabase's Security Advisor to catch this.
+
+#### 4. Don't Forget Junction Tables
+
+```sql
+-- If items has RLS but item_tags doesn't, attackers can read item_tags directly
+ALTER TABLE item_tags ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users see own item tags" ON item_tags
+    FOR SELECT TO authenticated
+    USING (
+      item_id IN (
+        SELECT id FROM items WHERE user_id = (select auth.uid())
+      )
+    );
+```
+
+#### 5. Views Bypass RLS by Default
+
+```sql
+-- ❌ Views run as postgres user (superuser) — bypasses RLS
+CREATE VIEW public_items AS SELECT * FROM items;
+
+-- ✅ PostgreSQL 15+: security_invoker makes view respect caller's RLS
+CREATE VIEW public_items
+    WITH (security_invoker = true)
+    AS SELECT * FROM items;
+```
+
+#### 6. RBAC Pattern with RLS
+
+```sql
+-- Roles table (set by admin, not user-editable)
+CREATE TABLE public.user_roles (
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'editor', 'admin')),
+    PRIMARY KEY (user_id, role)
+);
+ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+
+-- Hierarchical: admin > editor > viewer
+CREATE FUNCTION private.user_has_minimum_role(min_role text)
+RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+DECLARE role_rank int;
+BEGIN
+  SELECT CASE r.role
+    WHEN 'admin' THEN 3
+    WHEN 'editor' THEN 2
+    WHEN 'viewer' THEN 1
+    ELSE 0
+  END INTO role_rank
+  FROM public.user_roles r
+  WHERE r.user_id = (select auth.uid())
+  ORDER BY CASE r.role
+    WHEN 'admin' THEN 3 WHEN 'editor' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+  END DESC LIMIT 1;
+
+  RETURN COALESCE(role_rank, 0) >= CASE min_role
+    WHEN 'admin' THEN 3 WHEN 'editor' THEN 2 WHEN 'viewer' THEN 1 ELSE 0
+  END;
+END; $$;
+
+-- Apply to tables
+CREATE POLICY "Viewers can read" ON articles
+    FOR SELECT TO authenticated
+    USING ( (select private.user_has_minimum_role('viewer')) );
+
+CREATE POLICY "Editors can modify" ON articles
+    FOR UPDATE TO authenticated
+    USING ( (select private.user_has_minimum_role('editor')) );
+```
+
+#### 7. Multi-Tenant RLS Pattern
+
+```sql
+-- org_members table links users to organizations
+CREATE POLICY "Tenant isolation" ON items
+    FOR ALL TO authenticated
+    USING (
+      org_id IN (
+        SELECT org_id FROM org_members
+        WHERE user_id = (select auth.uid())
+      )
+    )
+    WITH CHECK (
+      org_id IN (
+        SELECT org_id FROM org_members
+        WHERE user_id = (select auth.uid())
+      )
+    );
+```
+
+#### 8. Testing RLS Policies
+
+```sql
+-- Test as a specific role
+SET ROLE authenticated;
+SET request.jwt.claims = '{"sub": "user-uuid-here", "role": "authenticated"}';
+
+-- Verify policy works
+SELECT * FROM items;  -- Should only see user's items
+
+-- Reset
+RESET ROLE;
+```
+
+> **Source**: [PostgreSQL Docs — Row Security Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html), [Supabase — Securing Your API](https://supabase.com/docs/guides/api/securing-your-api)
+
+---
+
+### Connection Pooling Deep Dive
+
+```
+                      Supabase Architecture
+┌──────────────────────────────────────────────────────────┐
+│  Axum (sqlx PgPool)                                      │
+│  ├── min_connections: 2                                   │
+│  ├── max_connections: 20                                  │
+│  └── idle_timeout: 10min                                  │
+│         │                                                 │
+│         ▼                                                 │
+│  Supavisor / PgBouncer (port 6543, transaction mode)      │
+│  ├── Reuses server connections across client sessions     │
+│  ├── Transaction mode: conn returned after each txn       │
+│  └── ⚠ No prepared statements in transaction mode         │
+│         │                                                 │
+│         ▼                                                 │
+│  PostgreSQL (port 5432)                                   │
+│  └── max_connections: ~100 (varies by Supabase plan)      │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Key rules**:
+
+| Rule | Why |
+|------|-----|
+| App connections < PgBouncer pool size | Prevents connection starvation |
+| Use port 6543 for application queries | PgBouncer transaction pooling |
+| Use port 5432 for migrations only | Migrations need prepared statements |
+| Set `?pgbouncer=true` in DATABASE_URL | Disables named prepared statements (incompatible with transaction mode) |
+| sqlx `PgPoolOptions::max_connections(20)` | Don't exceed Supabase connection limit |
+| sqlx `PgPoolOptions::min_connections(2)` | Keep warm connections for low-latency first requests |
+
+> **Source**: [Supabase — Connection Pooler](https://supabase.com/docs/guides/database/connecting-to-postgres#connection-pooler)
+
+---
+
+### How This Template Applies These Principles
+
+| Principle | Implementation | File |
+|-----------|---------------|------|
+| **Zero SQL injection** | `sqlx::query_as!()` compile-time parameterized queries | `backend/src/db/mod.rs` |
+| **Ownership isolation** | Every query includes `WHERE user_id = $1` | `backend/src/db/mod.rs` |
+| **Optimal indexing** | Composite index `(user_id, created_at DESC, id DESC)` matches query exactly | `backend/migrations/` |
+| **Cursor pagination** | `(created_at, id) < ($2, $3)` — O(1) page fetch | `backend/src/db/mod.rs` |
+| **No COUNT(*)** | `LIMIT + 1` trick for `has_more` | `backend/src/routes/items.rs` |
+| **Partial updates** | `COALESCE($3, title)` preserves unchanged fields | `backend/src/db/mod.rs` |
+| **Connection pooling** | sqlx PgPool → PgBouncer (port 6543) → PostgreSQL | `backend/src/main.rs` |
+| **JWT verification** | HS256 + audience + expiration, per-request | `backend/src/middleware/auth.rs` |
+| **Input validation** | `validator` crate (Rust) + `zod` (TypeScript) | Extractors + Server Actions |
+| **In-memory caching** | Moka async cache per user_id, TTL + write invalidation | `backend/src/routes/items.rs` |
+| **ETag support** | `updated_at`-based weak ETag, 304 Not Modified | `backend/src/routes/items.rs` |
+
+---
+
+### RLS Decision: Application-Layer vs Database-Layer
+
+This template uses **application-layer authorization** (Axum enforces `WHERE user_id = $1` in every query) instead of PostgreSQL RLS. Here's why, and when to switch:
+
+| Factor | Application-Layer (this template) | Database-Layer (RLS) |
+|--------|----------------------------------|---------------------|
+| **Architecture** | Backend is the only DB client | Multiple clients access DB (PostgREST, Realtime, Edge Functions) |
+| **Performance** | Zero overhead — no policy evaluation | 1-10ms overhead per query (with optimizations above) |
+| **Auditability** | All auth logic in Rust, compile-time checked | Policies in SQL, checked at runtime |
+| **Defense-in-depth** | Single enforcement point (Axum) | DB-level fallback even if app has bugs |
+| **Complexity** | Simple — auth in one place | Policies per table, must keep in sync |
+
+**When to add RLS to this template**: If you add Supabase client-side queries (real-time subscriptions, direct PostgREST access, Edge Functions), enable RLS as a defense-in-depth layer. The application-layer checks remain — RLS becomes a safety net.
+
+**If adding RLS to the `items` table in this template**:
+
+```sql
+-- Enable RLS
+ALTER TABLE items ENABLE ROW LEVEL SECURITY;
+-- Force even table owner to respect RLS
+ALTER TABLE items FORCE ROW LEVEL SECURITY;
+
+-- Index for policy performance (already exists in composite index)
+-- The composite index (user_id, created_at DESC, id DESC) covers this.
+
+-- Policies with all optimizations applied:
+CREATE POLICY "Users select own items" ON items
+    FOR SELECT TO authenticated
+    USING ( (select auth.uid()) = user_id );
+
+CREATE POLICY "Users insert own items" ON items
+    FOR INSERT TO authenticated
+    WITH CHECK ( (select auth.uid()) = user_id );
+
+CREATE POLICY "Users update own items" ON items
+    FOR UPDATE TO authenticated
+    USING ( (select auth.uid()) = user_id )
+    WITH CHECK ( (select auth.uid()) = user_id );
+
+CREATE POLICY "Users delete own items" ON items
+    FOR DELETE TO authenticated
+    USING ( (select auth.uid()) = user_id );
+
+-- Service role (Axum backend) bypasses RLS via direct connection
+-- No policy needed for the backend — it uses DATABASE_URL (postgres role)
+```
+
+---
+
+### Checklist: Adding a New Table
+
+When extending this template with new tables, follow this checklist:
+
+```
+□ Enable RLS if table is in public schema and accessed via Supabase API
+    ALTER TABLE new_table ENABLE ROW LEVEL SECURITY;
+
+□ Create policies with ALL optimizations:
+    - Wrap auth.uid() in (select auth.uid())
+    - Specify TO authenticated (not public)
+    - Minimize joins — use IN (select ...) pattern
+    - Complex checks → private.security_definer_function()
+
+□ Add indexes for:
+    - Columns in WHERE clauses
+    - Columns used in RLS policies (user_id)
+    - Foreign keys (for JOIN and CASCADE performance)
+    - Composite index matching your most common query pattern
+
+□ Use cursor pagination (not offset) for list endpoints
+    - Composite index: (filter_col, sort_col DESC, id DESC)
+
+□ Use sqlx::query_as!() for compile-time SQL verification
+
+□ Include user_id in every query (even with RLS — belt and suspenders)
+
+□ Run EXPLAIN ANALYZE on new queries to verify index usage
+
+□ Run Supabase Security Advisor to check for RLS gaps
+```
+
+> **Official Sources for this section**: [PostgreSQL — Performance Tips](https://www.postgresql.org/docs/current/performance-tips.html) | [PostgreSQL — Row Security](https://www.postgresql.org/docs/current/ddl-rowsecurity.html) | [PostgreSQL — CREATE POLICY](https://www.postgresql.org/docs/current/sql-createpolicy.html) | [PostgreSQL — Index Types](https://www.postgresql.org/docs/current/indexes-types.html) | [Supabase — Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security) | [Supabase — Query Optimization](https://supabase.com/docs/guides/database/query-optimization) | [Supabase — Securing Your API](https://supabase.com/docs/guides/api/securing-your-api) | [Supabase — Performance Advisors](https://supabase.com/docs/guides/database/database-advisors) | [SQLx Docs](https://docs.rs/sqlx/0.8/sqlx/)
+
+---
+
 ## Official Documentation Sources
 
 These are the authoritative references for each technology at the versions used in this template. Consult them when modifying or extending the codebase.
@@ -733,6 +1473,24 @@ These are the authoritative references for each technology at the versions used 
 | Supabase JS | 2.x | https://supabase.com/docs/reference/javascript/ |
 | Supabase SSR | 0.6 | https://supabase.com/docs/guides/auth/server-side/nextjs |
 | ESLint | 9 | https://eslint.org/docs/latest/ |
+
+### PostgreSQL / SQL Performance & Security
+
+| Topic | Documentation |
+|-------|---------------|
+| EXPLAIN & Query Plans | https://www.postgresql.org/docs/current/using-explain.html |
+| Index Types | https://www.postgresql.org/docs/current/indexes-types.html |
+| Multicolumn Indexes | https://www.postgresql.org/docs/current/indexes-multicolumn.html |
+| Partial Indexes | https://www.postgresql.org/docs/current/indexes-partial.html |
+| Covering Indexes / Index-Only Scans | https://www.postgresql.org/docs/current/indexes-index-only-scans.html |
+| Row Level Security (PostgreSQL) | https://www.postgresql.org/docs/current/ddl-rowsecurity.html |
+| CREATE POLICY Reference | https://www.postgresql.org/docs/current/sql-createpolicy.html |
+| Performance Tips | https://www.postgresql.org/docs/current/performance-tips.html |
+| Supabase RLS Guide | https://supabase.com/docs/guides/database/postgres/row-level-security |
+| Supabase Query Optimization | https://supabase.com/docs/guides/database/query-optimization |
+| Supabase Security Advisors | https://supabase.com/docs/guides/database/database-advisors |
+| Supabase API Security | https://supabase.com/docs/guides/api/securing-your-api |
+| RLS Performance Benchmarks | https://github.com/GaryAustin1/RLS-Performance |
 
 ### Infrastructure
 
