@@ -43,7 +43,8 @@ Deploy: Frontend on **Vercel**, Backend on **Railway**, DB on **Supabase**.
 │   (sign in/up)    │    │                                  │
 │                   │    │   Server Components               │
 │   - OAuth flows   │    │   Server Actions (mutations)      │
-│   - JWT issuance  │    │   Middleware (session refresh)     │
+│   - JWT issuance  │    │   Proxy (token refresh)            │
+│                   │    │   DAL (auth verification)          │
 │                   │    │                                  │
 └───────────────────┘    │   ┌──────────────────────────┐   │
                          │   │  API Client (server-only) │   │
@@ -88,12 +89,13 @@ Deploy: Frontend on **Vercel**, Backend on **Railway**, DB on **Supabase**.
 
 ```
 1. Browser requests /dashboard
-2. Next.js middleware runs:
+2. Next.js proxy runs (proxy.ts, Node.js runtime):
    - Creates Supabase SSR client
-   - Calls getUser() to refresh the session token
-   - If unauthenticated → redirect to /login
+   - Calls getClaims() to refresh the session token (no DB call)
+   - If unauthenticated → optimistic redirect to /login
 3. DashboardPage (Server Component) renders:
-   - Verifies user via Supabase server client
+   - Calls verifySession() from DAL (the real security layer)
+   - verifySession() uses getUser() which validates against Supabase
    - Suspense boundary wraps <ItemsLoader>
    - Shell (header + logout) streams immediately to browser
 4. ItemsLoader (async Server Component):
@@ -173,8 +175,9 @@ nextaxum/
     ├── next.config.ts                 # standalone output, CSP, HSTS, typed routes
     ├── Dockerfile                     # Multi-stage, non-root nodejs user
     └── src/
-        ├── middleware.ts              # Session refresh + /dashboard protection
+        ├── proxy.ts                   # Token refresh + optimistic route protection
         ├── lib/
+        │   ├── dal.ts                 # Data Access Layer: verifySession() — real auth boundary
         │   ├── env.ts                 # Server-only env validation (throws if missing)
         │   ├── env.client.ts          # Client-safe env (NEXT_PUBLIC_ only)
         │   ├── api/
@@ -183,7 +186,7 @@ nextaxum/
         │   └── supabase/
         │       ├── server.ts          # SSR Supabase client (cookie-based)
         │       ├── browser.ts         # Browser Supabase client
-        │       └── middleware.ts      # Session refresh helper for Next.js middleware
+        │       └── proxy.ts           # Token refresh helper for Next.js proxy
         └── app/
             ├── layout.tsx             # Root layout + globals.css import
             ├── globals.css            # CSS reset (box-sizing, margin, system-ui font)
@@ -343,8 +346,9 @@ Two modules enforce the server/client boundary:
 2. Supabase browser client calls supabase.auth.signInWithPassword()
 3. Supabase returns JWT tokens, @supabase/ssr stores them in cookies
 4. router.push("/dashboard") triggers navigation
-5. Next.js middleware detects cookies, refreshes session via getUser()
-6. Dashboard Server Component loads with valid session
+5. Next.js proxy refreshes session via getClaims() (no DB call)
+6. Dashboard Server Component calls verifySession() (DAL) → getUser() validates
+7. Dashboard loads with verified session
 ```
 
 ### Authenticated API Call
@@ -364,13 +368,24 @@ Two modules enforce the server/client boundary:
 8. All DB queries filter by user_id for ownership
 ```
 
-### Session Refresh
+### Session Refresh (Proxy) + Auth Verification (DAL)
 
-Next.js middleware (`src/middleware.ts`) runs on every request:
+Next.js uses a **defense-in-depth** pattern with two layers:
+
+**Layer 1 — Proxy (`src/proxy.ts`)** runs on every request:
 1. Creates Supabase SSR client with request/response cookie handlers
-2. Calls `getUser()` — this silently refreshes expired tokens
+2. Calls `getClaims()` — validates JWT and refreshes expired tokens (no DB call)
 3. Updated tokens are written to response cookies
-4. If user is unauthenticated and route is `/dashboard/*` → redirect to `/login`
+4. If unauthenticated and route is `/dashboard/*` → optimistic redirect to `/login`
+
+**Layer 2 — DAL (`src/lib/dal.ts`)** called in Server Components/Actions:
+1. `verifySession()` calls `getUser()` which validates against Supabase (DB call)
+2. If invalid → hard redirect to `/login`
+3. Uses `React.cache()` — multiple calls in one render are free
+
+**Why two layers?** The proxy is fast (no DB call) but optimistic — it can be bypassed (see CVE-2025-29927). The DAL is the real security boundary. Neither alone is sufficient.
+
+See: [Next.js Authentication Guide](https://nextjs.org/docs/app/guides/authentication)
 
 ---
 
@@ -626,6 +641,20 @@ This is a template — Redis adds operational complexity (another service to dep
 
 See: [moka crate documentation](https://docs.rs/moka/latest/moka/)
 
+### Why `proxy.ts` instead of `middleware.ts`?
+
+Next.js 16 deprecated `middleware.ts` and replaced it with `proxy.ts`. The rename reflects a philosophical shift: the proxy sits at the network boundary and should only do lightweight checks (JWT validation, token refresh, optimistic redirects). It runs on the **Node.js runtime** (not Edge).
+
+The real auth check happens in the **Data Access Layer** (`lib/dal.ts`) — a `verifySession()` function using `React.cache()` called from Server Components and Server Actions. This defense-in-depth pattern was adopted after CVE-2025-29927 showed that middleware-only auth could be bypassed.
+
+See: [Next.js proxy.ts API Reference](https://nextjs.org/docs/app/api-reference/file-conventions/proxy), [Next.js Authentication Guide](https://nextjs.org/docs/app/guides/authentication)
+
+### Why `getClaims()` instead of `getSession()` in the proxy?
+
+Supabase docs explicitly warn: "Always use `getClaims()` to protect pages. Never trust `getSession()` inside server code such as Proxy." `getClaims()` validates the JWT signature every time. `getSession()` may return stale data from cookies without verification. `getUser()` is used in the DAL for full server-side validation.
+
+See: [Supabase Server-Side Auth for Next.js](https://supabase.com/docs/guides/auth/server-side/nextjs)
+
 ### Why `server-only` imports?
 
 Next.js can accidentally bundle server code into the client. The `server-only` package causes a build error if a server module is imported from a Client Component. This prevents secret leakage.
@@ -738,8 +767,9 @@ When extending this template, follow these patterns:
 ### Adding a new protected route (frontend)
 
 1. Create the page under `src/app/`
-2. Add the path to the middleware check in `src/lib/supabase/middleware.ts` (line 34)
-3. Add `loading.tsx` and `error.tsx` siblings
+2. Call `verifySession()` from `@/lib/dal` at the top of the Server Component (this is the real auth check)
+3. Optionally add the path to the proxy redirect in `src/lib/supabase/proxy.ts` (optimistic, not security)
+4. Add `loading.tsx` and `error.tsx` siblings
 
 ### Replacing moka with Redis
 

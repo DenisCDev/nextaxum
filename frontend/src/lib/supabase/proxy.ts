@@ -13,7 +13,7 @@ export async function updateSession(request: NextRequest) {
           return request.cookies.getAll();
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
+          cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
           supabaseResponse = NextResponse.next({ request });
@@ -25,14 +25,14 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  // Refresh the session — this keeps the auth token alive
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Do NOT run any code between createServerClient and getClaims().
+  // A simple mistake could make it very hard to debug random logouts.
+  const { data: claims } = await supabase.auth.getClaims();
 
-  // Protect routes: redirect unauthenticated users
+  // Optimistic redirect — proxy is NOT the security layer, the DAL is.
+  // This just avoids rendering protected pages for clearly unauthenticated users.
   const isProtectedRoute = request.nextUrl.pathname.startsWith("/dashboard");
-  if (!user && isProtectedRoute) {
+  if (!claims && isProtectedRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

@@ -1,19 +1,16 @@
 import { Suspense } from "react";
 import { getItems } from "@/lib/api/items";
-import { createClient } from "@/lib/supabase/server";
-import { redirect } from "next/navigation";
+import { verifySession } from "@/lib/dal";
 import { ItemsList } from "./items-list";
 import { logout } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) redirect("/login");
+  // DAL is the real security layer — not the proxy.
+  // verifySession() is cached via React.cache(), so multiple calls
+  // in the same render are deduplicated (zero extra cost).
+  const { user } = await verifySession();
 
   return (
     <main style={{ maxWidth: 600, margin: "0 auto", padding: "2rem 1rem" }}>
