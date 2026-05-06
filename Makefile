@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend build lint test migrate docker-up sqlx-prepare lockfiles
+.PHONY: dev dev-backend dev-frontend build lint test migrate docker-up sqlx-prepare lockfiles install-hooks
 
 # Run backend and frontend (run in separate terminals)
 dev-backend:
@@ -39,3 +39,9 @@ sqlx-prepare:
 lockfiles:
 	cd backend && cargo generate-lockfile
 	cd frontend && npm install
+
+# Install pre-commit / pre-push git hooks (Lefthook). Runs once per clone.
+# Requires lefthook on PATH — `npm i -g lefthook` or download from
+# https://github.com/evilmartians/lefthook/releases.
+install-hooks:
+	lefthook install

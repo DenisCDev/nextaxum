@@ -1,0 +1,30 @@
+# Multi-language git hooks. Install with `make install-hooks` (runs `lefthook install`).
+# Lefthook only runs commands whose glob matches at least one staged file, so
+# touching one side of the monorepo never spends CI cycles on the other.
+
+pre-commit:
+  parallel: true
+  commands:
+    eslint:
+      glob: "frontend/**/*.{ts,tsx,js,jsx,mjs}"
+      run: cd frontend && npx eslint --max-warnings 0 {staged_files}
+    typecheck-front:
+      glob: "frontend/**/*.{ts,tsx}"
+      run: cd frontend && npm run typecheck
+    rust-fmt:
+      glob: "backend/**/*.rs"
+      run: cd backend && cargo fmt --check
+    rust-clippy:
+      glob: "backend/**/*.rs"
+      # --no-deps keeps clippy local to your code; CI runs the full --all-targets sweep.
+      run: cd backend && cargo clippy --no-deps --quiet -- -D warnings
+
+pre-push:
+  parallel: true
+  commands:
+    test-front:
+      glob: "frontend/**/*"
+      run: cd frontend && npm run test:run
+    test-back:
+      glob: "backend/**/*"
+      run: cd backend && cargo test --quiet
