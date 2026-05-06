@@ -1,5 +1,6 @@
 mod health;
 mod items;
+mod profile;
 
 use std::time::Duration;
 
@@ -33,6 +34,7 @@ use crate::state::AppState;
     ),
     tags(
         (name = "items", description = "Per-user item CRUD"),
+        (name = "profile", description = "Caller's public.profiles row"),
         (name = "health", description = "Liveness and readiness probes"),
     ),
     components(),
@@ -88,6 +90,7 @@ pub fn create_router(state: AppState) -> Router {
     // Protected routes — require valid Supabase JWT
     let protected = OpenApiRouter::new()
         .merge(items::router())
+        .merge(profile::router())
         .route_layer(axum_mw::from_fn_with_state(state.clone(), require_auth));
 
     // Public routes (health/ready)

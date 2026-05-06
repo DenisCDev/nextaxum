@@ -4,14 +4,22 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
-// -- User (maps to Supabase auth.users) --
+// -- Profile (public.profiles, shadow row for auth.users) --
 
-#[derive(Debug, Serialize, ToSchema)]
-pub struct UserProfile {
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
+pub struct Profile {
     pub id: Uuid,
-    pub email: String,
     pub display_name: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub avatar_url: Option<String>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize, Validate, ToSchema)]
+pub struct UpdateProfile {
+    #[validate(length(min = 1, max = 100))]
+    pub display_name: Option<String>,
+    #[validate(url, length(max = 2048))]
+    pub avatar_url: Option<String>,
 }
 
 // -- Example domain entity --
