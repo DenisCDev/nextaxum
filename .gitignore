@@ -7,6 +7,9 @@ frontend/.next/
 frontend/.turbo/
 frontend/next-env.d.ts
 frontend/tsconfig.tsbuildinfo
+frontend/playwright-report/
+frontend/test-results/
+frontend/blob-report/
 
 # Environment
 .env
