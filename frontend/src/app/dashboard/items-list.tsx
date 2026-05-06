@@ -1,12 +1,60 @@
 "use client";
 
 import type { Item } from "@/lib/api/items";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { addItem, removeItem } from "./actions";
+import { createClient } from "@/lib/supabase/browser";
 
-export function ItemsList({ initialItems }: { initialItems: Item[] }) {
+/**
+ * `initialItems` is the SSR snapshot. Once mounted, we subscribe to the
+ * `items` table on Supabase Realtime — INSERT/UPDATE/DELETE filtered to the
+ * caller's user_id reconcile the local state without a refetch. RLS on
+ * `items` still applies on the wire, so other users' rows never reach us.
+ */
+export function ItemsList({
+  initialItems,
+  userId,
+}: {
+  initialItems: Item[];
+  userId: string;
+}) {
+  const [items, setItems] = useState<Item[]>(initialItems);
   const [title, setTitle] = useState("");
   const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`items:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "items",
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const row = payload.new as Item;
+            setItems((prev) =>
+              prev.some((i) => i.id === row.id) ? prev : [row, ...prev],
+            );
+          } else if (payload.eventType === "UPDATE") {
+            const row = payload.new as Item;
+            setItems((prev) => prev.map((i) => (i.id === row.id ? row : i)));
+          } else if (payload.eventType === "DELETE") {
+            const row = payload.old as Item;
+            setItems((prev) => prev.filter((i) => i.id !== row.id));
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -41,11 +89,11 @@ export function ItemsList({ initialItems }: { initialItems: Item[] }) {
         </button>
       </form>
 
-      {initialItems.length === 0 ? (
+      {items.length === 0 ? (
         <p>No items yet.</p>
       ) : (
         <ul style={{ listStyle: "none", padding: 0 }}>
-          {initialItems.map((item) => (
+          {items.map((item) => (
             <li
               key={item.id}
               style={{

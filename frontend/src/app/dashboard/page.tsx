@@ -30,13 +30,13 @@ export default async function DashboardPage() {
         </div>
       </header>
       <Suspense fallback={<p style={{ marginTop: "1rem", color: "#666" }}>Loading items...</p>}>
-        <ItemsLoader />
+        <ItemsLoader userId={user.id} />
       </Suspense>
     </main>
   );
 }
 
-async function ItemsLoader() {
+async function ItemsLoader({ userId }: { userId: string }) {
   const items = await getItems();
-  return <ItemsList initialItems={items} />;
+  return <ItemsList initialItems={items} userId={userId} />;
 }
