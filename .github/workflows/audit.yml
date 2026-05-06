@@ -1,0 +1,27 @@
+name: Security audit
+
+on:
+  schedule:
+    # Daily at 04:17 UTC — off-peak, avoids contention with everyone's
+    # midnight cron. RustSec advisory DB updates rarely but predictably.
+    - cron: "17 4 * * *"
+  push:
+    paths:
+      - "backend/Cargo.toml"
+      - "backend/Cargo.lock"
+      - ".github/workflows/audit.yml"
+  workflow_dispatch:
+
+jobs:
+  cargo-audit:
+    name: cargo audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/audit@v1
+        with:
+          working-directory: backend
+          createIssues: true
