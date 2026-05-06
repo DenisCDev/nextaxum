@@ -29,7 +29,9 @@ migrate:
 docker-up:
 	docker compose up --build
 
-# Prepare sqlx offline cache (requires running database)
+# Prepare sqlx offline cache (requires running database).
+# REQUIRED before first Docker build / first CI run on a fresh clone:
+# the .sqlx/ directory must be committed for SQLX_OFFLINE=true to work.
 sqlx-prepare:
 	cd backend && cargo sqlx prepare
 
