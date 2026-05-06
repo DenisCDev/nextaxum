@@ -1,0 +1,9 @@
+# Default owners for everything in the repo.
+# Replace with the GitHub handles or teams that should review by default.
+*       @DenisCDev
+
+# Per-area routing — uncomment + adjust if you grow the team.
+# /frontend/      @your-frontend-team
+# /backend/       @your-backend-team
+# /backend/migrations/   @your-dba
+# /.github/       @your-platform-team
