@@ -1,3 +1,22 @@
+use std::env::VarError;
+use std::num::ParseIntError;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigError {
+    #[error("required env `{0}` is not set")]
+    Missing(&'static str),
+    #[error("env `{key}` is not a valid {expected}: {source}")]
+    InvalidNumber {
+        key: &'static str,
+        expected: &'static str,
+        #[source]
+        source: ParseIntError,
+    },
+    #[error("env `{key}` is not a valid URL: {value}")]
+    InvalidUrl { key: &'static str, value: String },
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
     pub supabase_jwt_secret: String,
@@ -15,34 +34,78 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_env() -> Self {
-        Self {
-            database_url: env("DATABASE_URL"),
-            supabase_jwt_secret: env("SUPABASE_JWT_SECRET"),
-            supabase_jwks_url: std::env::var("SUPABASE_JWKS_URL").ok().filter(|s| !s.is_empty()),
-            jwks_ttl_secs: env_or("JWKS_TTL_SECS", "3600").parse().expect("JWKS_TTL_SECS must be a number"),
-            frontend_url: env_or("FRONTEND_URL", "http://localhost:3000"),
-            // Railway injects PORT; fall back to BACKEND_PORT for local dev
-            port: std::env::var("PORT")
-                .or_else(|_| std::env::var("BACKEND_PORT"))
-                .unwrap_or_else(|_| "8080".to_string())
-                .parse()
-                .expect("PORT must be a number"),
-            db_max_connections: env_or("DB_MAX_CONNECTIONS", "20").parse().expect("DB_MAX_CONNECTIONS must be a number"),
-            db_min_connections: env_or("DB_MIN_CONNECTIONS", "2").parse().expect("DB_MIN_CONNECTIONS must be a number"),
-            request_timeout_secs: env_or("REQUEST_TIMEOUT_SECS", "30").parse().expect("REQUEST_TIMEOUT_SECS must be a number"),
-            body_limit_bytes: env_or("BODY_LIMIT_BYTES", "2097152").parse().expect("BODY_LIMIT_BYTES must be a number"),
-            items_page_size: env_or("ITEMS_PAGE_SIZE", "50").parse().expect("ITEMS_PAGE_SIZE must be a number"),
-            rate_limit_per_sec: env_or("RATE_LIMIT_PER_SEC", "10").parse().expect("RATE_LIMIT_PER_SEC must be a number"),
-            rate_limit_burst: env_or("RATE_LIMIT_BURST", "20").parse().expect("RATE_LIMIT_BURST must be a number"),
-        }
+    /// Validates and parses every environment variable up-front so a misconfigured
+    /// deployment fails on startup with a precise error rather than panicking on
+    /// the first request that touches a bad value.
+    pub fn from_env() -> Result<Self, ConfigError> {
+        Ok(Self {
+            database_url: required("DATABASE_URL")?,
+            supabase_jwt_secret: required("SUPABASE_JWT_SECRET")?,
+            supabase_jwks_url: optional_url("SUPABASE_JWKS_URL")?,
+            jwks_ttl_secs: parse_or("JWKS_TTL_SECS", "3600", "u64")?,
+            frontend_url: optional("FRONTEND_URL")?
+                .unwrap_or_else(|| "http://localhost:3000".to_string()),
+            port: parse_port()?,
+            db_max_connections: parse_or("DB_MAX_CONNECTIONS", "20", "u32")?,
+            db_min_connections: parse_or("DB_MIN_CONNECTIONS", "2", "u32")?,
+            request_timeout_secs: parse_or("REQUEST_TIMEOUT_SECS", "30", "u64")?,
+            body_limit_bytes: parse_or("BODY_LIMIT_BYTES", "2097152", "usize")?,
+            items_page_size: parse_or("ITEMS_PAGE_SIZE", "50", "i64")?,
+            rate_limit_per_sec: parse_or("RATE_LIMIT_PER_SEC", "10", "u64")?,
+            rate_limit_burst: parse_or("RATE_LIMIT_BURST", "20", "u32")?,
+        })
     }
 }
 
-fn env(key: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| panic!("{key} must be set"))
+fn required(key: &'static str) -> Result<String, ConfigError> {
+    match std::env::var(key) {
+        Ok(v) if !v.is_empty() => Ok(v),
+        Ok(_) | Err(VarError::NotPresent) => Err(ConfigError::Missing(key)),
+        Err(VarError::NotUnicode(_)) => Err(ConfigError::Missing(key)),
+    }
 }
 
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
+fn optional(key: &'static str) -> Result<Option<String>, ConfigError> {
+    match std::env::var(key) {
+        Ok(v) if v.is_empty() => Ok(None),
+        Ok(v) => Ok(Some(v)),
+        Err(VarError::NotPresent) => Ok(None),
+        Err(VarError::NotUnicode(_)) => Err(ConfigError::Missing(key)),
+    }
+}
+
+fn optional_url(key: &'static str) -> Result<Option<String>, ConfigError> {
+    let Some(value) = optional(key)? else {
+        return Ok(None);
+    };
+    if !(value.starts_with("http://") || value.starts_with("https://")) {
+        return Err(ConfigError::InvalidUrl { key, value });
+    }
+    Ok(Some(value))
+}
+
+fn parse_or<T>(key: &'static str, default: &str, expected: &'static str) -> Result<T, ConfigError>
+where
+    T: std::str::FromStr<Err = ParseIntError>,
+{
+    let raw = std::env::var(key).unwrap_or_else(|_| default.to_string());
+    raw.parse::<T>()
+        .map_err(|source| ConfigError::InvalidNumber {
+            key,
+            expected,
+            source,
+        })
+}
+
+fn parse_port() -> Result<u16, ConfigError> {
+    // Railway injects PORT; fall back to BACKEND_PORT for local dev.
+    let raw = std::env::var("PORT")
+        .or_else(|_| std::env::var("BACKEND_PORT"))
+        .unwrap_or_else(|_| "8080".to_string());
+    raw.parse::<u16>()
+        .map_err(|source| ConfigError::InvalidNumber {
+            key: "PORT",
+            expected: "u16",
+            source,
+        })
 }

@@ -30,7 +30,16 @@ async fn main() {
         )
         .init();
 
-    let config = Config::from_env();
+    let config = match Config::from_env() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            // Log AND print so the failure is visible whether stderr is captured
+            // (Docker/Railway) or not.
+            tracing::error!(error = %e, "configuration error — refusing to start");
+            eprintln!("Configuration error: {e}");
+            std::process::exit(2);
+        }
+    };
     let port = config.port;
     let state = AppState::new(config).await;
     let app = create_router(state);
