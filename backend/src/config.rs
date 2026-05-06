@@ -31,6 +31,9 @@ pub struct Config {
     pub items_page_size: i64,
     pub rate_limit_per_sec: u64,
     pub rate_limit_burst: u32,
+    /// Shared secret used to verify HMAC-SHA256 signatures on
+    /// `POST /webhooks/{provider}`. None disables the endpoint.
+    pub webhook_secret: Option<String>,
 }
 
 impl Config {
@@ -53,6 +56,7 @@ impl Config {
             items_page_size: parse_or("ITEMS_PAGE_SIZE", "50", "i64")?,
             rate_limit_per_sec: parse_or("RATE_LIMIT_PER_SEC", "10", "u64")?,
             rate_limit_burst: parse_or("RATE_LIMIT_BURST", "20", "u32")?,
+            webhook_secret: optional("WEBHOOK_SECRET")?,
         })
     }
 }

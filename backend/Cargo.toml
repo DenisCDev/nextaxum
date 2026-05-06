@@ -44,6 +44,10 @@ parking_lot = "0.12"
 utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+subtle = "2"
 
 # OpenTelemetry — opt-in via `cargo build --features otel`. Wires in
 # tracing-opentelemetry + the OTLP gRPC exporter so the existing tracing

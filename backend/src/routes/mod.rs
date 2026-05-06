@@ -1,6 +1,7 @@
 mod health;
 mod items;
 mod profile;
+mod webhooks;
 
 use std::time::Duration;
 
@@ -35,6 +36,7 @@ use crate::state::AppState;
     tags(
         (name = "items", description = "Per-user item CRUD"),
         (name = "profile", description = "Caller's public.profiles row"),
+        (name = "webhooks", description = "Signed external event ingestion"),
         (name = "health", description = "Liveness and readiness probes"),
     ),
     components(),
@@ -93,8 +95,10 @@ pub fn create_router(state: AppState) -> Router {
         .merge(profile::router())
         .route_layer(axum_mw::from_fn_with_state(state.clone(), require_auth));
 
-    // Public routes (health/ready)
-    let public = OpenApiRouter::new().merge(health::router());
+    // Public routes (health/ready + signed webhook receiver)
+    let public = OpenApiRouter::new()
+        .merge(health::router())
+        .merge(webhooks::router());
 
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", protected)
