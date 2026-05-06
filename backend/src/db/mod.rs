@@ -87,10 +87,10 @@ pub async fn update_item(
 ) -> AppResult<Item> {
     let item = sqlx::query_as!(
         Item,
+        // updated_at is bumped by the items_updated_at trigger (moddatetime).
         "UPDATE items
          SET title = COALESCE($3, title),
-             description = COALESCE($4, description),
-             updated_at = now()
+             description = COALESCE($4, description)
          WHERE id = $1 AND user_id = $2
          RETURNING id, user_id, title, description, created_at, updated_at",
         id,
