@@ -2,11 +2,21 @@
 
 import { useActionState } from "react";
 import { login, type LoginState } from "./actions";
+import { createClient } from "@/lib/supabase/browser";
 
 const initialState: LoginState = {};
 
 export default function LoginPage() {
   const [state, action, pending] = useActionState(login, initialState);
+
+  async function signInWithGoogle() {
+    const supabase = createClient();
+    const redirectTo = `${window.location.origin}/auth/callback`;
+    await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo },
+    });
+  }
 
   return (
     <main style={{ maxWidth: 400, margin: "0 auto", padding: "4rem 1rem" }}>
@@ -48,6 +58,18 @@ export default function LoginPage() {
           {pending ? "Signing in..." : "Sign in"}
         </button>
       </form>
+
+      <div style={{ margin: "1.5rem 0", textAlign: "center", color: "#888" }}>
+        or
+      </div>
+
+      <button
+        type="button"
+        onClick={signInWithGoogle}
+        style={{ width: "100%" }}
+      >
+        Sign in with Google
+      </button>
     </main>
   );
 }

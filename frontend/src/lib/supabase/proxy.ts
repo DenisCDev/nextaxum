@@ -33,8 +33,12 @@ export async function updateSession(request: NextRequest) {
 
   // Optimistic redirect — proxy is NOT the security layer, the DAL is.
   // This just avoids rendering protected pages for clearly unauthenticated users.
-  const isProtectedRoute = request.nextUrl.pathname.startsWith("/dashboard");
-  if (!claims && isProtectedRoute) {
+  // /auth/callback is exempt: it always runs unauthenticated by definition
+  // (it's where we trade the OAuth `code` for a session).
+  const path = request.nextUrl.pathname;
+  const isAuthCallback = path.startsWith("/auth/");
+  const isProtectedRoute = path.startsWith("/dashboard");
+  if (!claims && isProtectedRoute && !isAuthCallback) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
