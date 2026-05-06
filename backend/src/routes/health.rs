@@ -1,29 +1,45 @@
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::get;
-use axum::{Json, Router};
+use axum::Json;
 use serde_json::{json, Value};
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_axum::routes;
 
 use crate::state::AppState;
 
 /// Liveness vs readiness split (Kubernetes / Railway pattern):
 ///
 /// - `/health`  liveness   — process is alive. NEVER touches dependencies.
-///                            kubelet uses this to decide whether to restart.
-/// - `/ready`   readiness  — process can serve requests. Probes DB and (when
-///                            configured) the JWKS cache. Failure pulls the
-///                            instance out of the load balancer without
-///                            triggering a restart.
-pub fn router() -> Router<AppState> {
-    Router::new()
-        .route("/health", get(liveness))
-        .route("/ready", get(readiness))
+/// - `/ready`   readiness  — process can serve requests. Probes DB and JWKS.
+pub fn router() -> OpenApiRouter<AppState> {
+    OpenApiRouter::new()
+        .routes(routes!(liveness))
+        .routes(routes!(readiness))
 }
 
+/// Liveness probe. Always returns 200 — used by orchestrators to decide
+/// whether to RESTART the process.
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "health",
+    responses((status = 200, description = "Process is alive")),
+)]
 async fn liveness() -> Json<Value> {
     Json(json!({ "status": "ok" }))
 }
 
+/// Readiness probe. 200 only when the DB and (optionally) the JWKS endpoint
+/// are reachable. Used by orchestrators to decide whether to ROUTE traffic.
+#[utoipa::path(
+    get,
+    path = "/ready",
+    tag = "health",
+    responses(
+        (status = 200, description = "Ready to serve traffic"),
+        (status = 503, description = "A required dependency is unavailable"),
+    ),
+)]
 async fn readiness(
     State(state): State<AppState>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {

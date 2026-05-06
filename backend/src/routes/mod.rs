@@ -17,9 +17,49 @@ use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetReques
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
+use utoipa::OpenApi;
+use utoipa_axum::router::OpenApiRouter;
+use utoipa_swagger_ui::SwaggerUi;
 
 use crate::middleware::auth::require_auth;
 use crate::state::AppState;
+
+#[derive(OpenApi)]
+#[openapi(
+    info(
+        title = "NextAxum API",
+        description = "Backend API for the Next.js + Axum + Supabase template.",
+        version = env!("CARGO_PKG_VERSION"),
+    ),
+    tags(
+        (name = "items", description = "Per-user item CRUD"),
+        (name = "health", description = "Liveness and readiness probes"),
+    ),
+    components(),
+    modifiers(&SecurityAddon),
+)]
+struct ApiDoc;
+
+struct SecurityAddon;
+
+impl utoipa::Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+        let components = openapi
+            .components
+            .get_or_insert_with(utoipa::openapi::Components::new);
+        components.add_security_scheme(
+            "bearer",
+            SecurityScheme::Http(
+                HttpBuilder::new()
+                    .scheme(HttpAuthScheme::Bearer)
+                    .bearer_format("JWT")
+                    .description(Some("Supabase access token (HS256 or asymmetric)"))
+                    .build(),
+            ),
+        );
+    }
+}
 
 pub fn create_router(state: AppState) -> Router {
     let config = &state.inner.config;
@@ -46,16 +86,22 @@ pub fn create_router(state: AppState) -> Router {
         .max_age(Duration::from_secs(3600));
 
     // Protected routes — require valid Supabase JWT
-    let protected = Router::new()
+    let protected = OpenApiRouter::new()
         .merge(items::router())
         .route_layer(axum_mw::from_fn_with_state(state.clone(), require_auth));
 
-    // Public routes
-    let public = Router::new().merge(health::router());
+    // Public routes (health/ready)
+    let public = OpenApiRouter::new().merge(health::router());
 
-    Router::new()
+    let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .nest("/api", protected)
         .merge(public)
+        .split_for_parts();
+
+    router
+        // Swagger UI at /docs (mounted regardless of build profile — the spec
+        // contains no secrets and the UI is read-only).
+        .merge(SwaggerUi::new("/docs").url("/openapi.json", api))
         .with_state(state)
         .layer(
             ServiceBuilder::new()

@@ -1,11 +1,12 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::Validate;
 
 // -- User (maps to Supabase auth.users) --
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct UserProfile {
     pub id: Uuid,
     pub email: String,
@@ -15,7 +16,7 @@ pub struct UserProfile {
 
 // -- Example domain entity --
 
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, ToSchema)]
 pub struct Item {
     pub id: Uuid,
     pub user_id: Uuid,
@@ -25,7 +26,7 @@ pub struct Item {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateItem {
     #[validate(length(min = 1, max = 255))]
     pub title: String,
@@ -33,7 +34,7 @@ pub struct CreateItem {
     pub description: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Validate)]
+#[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateItem {
     #[validate(length(min = 1, max = 255))]
     pub title: Option<String>,
@@ -43,7 +44,7 @@ pub struct UpdateItem {
 
 // -- Pagination --
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct PaginationParams {
     pub cursor: Option<String>,
     pub limit: Option<i64>,
@@ -65,8 +66,9 @@ impl PaginationParams {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct PaginatedResponse<T: Serialize> {
+#[derive(Debug, Serialize, ToSchema)]
+#[aliases(PaginatedItems = PaginatedResponse<Item>)]
+pub struct PaginatedResponse<T: Serialize + ToSchema> {
     pub data: Vec<T>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
