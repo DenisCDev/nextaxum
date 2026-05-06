@@ -45,6 +45,18 @@ utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
+# OpenTelemetry — opt-in via `cargo build --features otel`. Wires in
+# tracing-opentelemetry + the OTLP gRPC exporter so the existing tracing
+# spans are sent to a collector when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"], optional = true }
+opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"], optional = true }
+tracing-opentelemetry = { version = "0.28", optional = true }
+
+[features]
+default = []
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
+
 [dev-dependencies]
 axum-test = "18"
 tokio = { version = "1", features = ["test-util", "macros"] }

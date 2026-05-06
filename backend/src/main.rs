@@ -3,22 +3,13 @@ use std::net::SocketAddr;
 use backend::config::Config;
 use backend::routes::create_router;
 use backend::state::AppState;
+use backend::telemetry;
 use tokio::net::TcpListener;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
-
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| "backend=debug,tower_http=debug".into()))
-        .with(
-            tracing_subscriber::fmt::layer()
-                .json()
-                .with_target(true)
-                .with_thread_ids(true),
-        )
-        .init();
+    telemetry::init();
 
     let config = match Config::from_env() {
         Ok(cfg) => cfg,
