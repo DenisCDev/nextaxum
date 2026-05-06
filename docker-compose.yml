@@ -7,7 +7,8 @@ services:
     environment:
       - RUST_LOG=backend=debug,tower_http=debug
     depends_on:
-      - migrate
+      migrate:
+        condition: service_completed_successfully
 
   migrate:
     build: ./backend
@@ -15,6 +16,7 @@ services:
     env_file: .env
     environment:
       - DATABASE_URL=${DATABASE_URL_DIRECT}
+    restart: "no"
 
   frontend:
     build: ./frontend
@@ -22,4 +24,5 @@ services:
       - "3000:3000"
     env_file: .env
     depends_on:
-      - backend
+      backend:
+        condition: service_started

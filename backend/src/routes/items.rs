@@ -32,22 +32,7 @@ async fn list_items(
     let limit = params.limit.unwrap_or(page_size).min(page_size);
     let cursor = params.decode_cursor();
 
-    let mut items = if cursor.is_none() {
-        // First page: check cache
-        if let Some(cached) = state.inner.items_cache.get(&user.id()).await {
-            if cached.len() as i64 <= limit + 1 {
-                cached
-            } else {
-                cached.into_iter().take((limit + 1) as usize).collect()
-            }
-        } else {
-            let fetched = db::get_items_by_user(state.db(), user.id(), None, limit).await?;
-            state.inner.items_cache.insert(user.id(), fetched.clone()).await;
-            fetched
-        }
-    } else {
-        db::get_items_by_user(state.db(), user.id(), cursor, limit).await?
-    };
+    let mut items = db::get_items_by_user(state.db(), user.id(), cursor, limit).await?;
 
     let has_more = items.len() as i64 > limit;
     if has_more {
@@ -76,7 +61,6 @@ async fn create_item(
     ValidatedJson(input): ValidatedJson<CreateItem>,
 ) -> AppResult<(StatusCode, Json<Item>)> {
     let item = db::create_item(state.db(), user.id(), &input).await?;
-    state.inner.items_cache.invalidate(&user.id()).await;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -117,7 +101,6 @@ async fn update_item(
     ValidatedJson(input): ValidatedJson<UpdateItem>,
 ) -> AppResult<Json<Item>> {
     let item = db::update_item(state.db(), id, user.id(), &input).await?;
-    state.inner.items_cache.invalidate(&user.id()).await;
     Ok(Json(item))
 }
 
@@ -128,6 +111,5 @@ async fn delete_item(
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
     db::delete_item(state.db(), id, user.id()).await?;
-    state.inner.items_cache.invalidate(&user.id()).await;
     Ok(StatusCode::NO_CONTENT)
 }

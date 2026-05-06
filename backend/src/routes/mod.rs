@@ -7,8 +7,8 @@ use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::{HeaderName, HeaderValue, Method};
 use axum::middleware as axum_mw;
 use axum::Router;
-use tower::limit::RateLimitLayer;
 use tower::ServiceBuilder;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
@@ -23,6 +23,14 @@ use crate::state::AppState;
 
 pub fn create_router(state: AppState) -> Router {
     let config = &state.inner.config;
+
+    // Per-IP rate limit (peer IP — for trusted-proxy deploys behind Railway/Vercel,
+    // configure GovernorConfigBuilder.use_headers() to read X-Forwarded-For).
+    let governor = GovernorConfigBuilder::default()
+        .per_second(config.rate_limit_per_sec)
+        .burst_size(config.rate_limit_burst)
+        .finish()
+        .expect("invalid governor config");
 
     let cors = CorsLayer::new()
         .allow_origin(
@@ -56,8 +64,9 @@ pub fn create_router(state: AppState) -> Router {
                 .layer(PropagateRequestIdLayer::x_request_id())
                 .layer(CatchPanicLayer::new())
                 .layer(TraceLayer::new_for_http())
-                // Rate limit: 100 requests per 10 seconds globally
-                .layer(RateLimitLayer::new(100, Duration::from_secs(10)))
+                // Per-IP rate limit (replaces tower::limit::RateLimitLayer which is
+                // a single shared bucket — see tokio-rs/axum#2634).
+                .layer(GovernorLayer::new(governor))
                 .layer(TimeoutLayer::new(Duration::from_secs(config.request_timeout_secs)))
                 .layer(CompressionLayer::new())
                 .layer(RequestBodyLimitLayer::new(config.body_limit_bytes))

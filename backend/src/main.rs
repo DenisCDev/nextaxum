@@ -31,10 +31,11 @@ async fn main() {
         .init();
 
     let config = Config::from_env();
+    let port = config.port;
     let state = AppState::new(config).await;
     let app = create_router(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = TcpListener::bind(addr).await.expect("failed to bind");
     tracing::info!("listening on {addr}");
 

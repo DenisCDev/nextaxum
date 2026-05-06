@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 axum = "0.8"
-axum-extra = { version = "0.10", features = ["typed-header"] }
 tokio = { version = "1", features = ["full"] }
-tower = { version = "0.5", features = ["util", "limit"] }
+tower = { version = "0.5", features = ["util"] }
+tower_governor = "0.7"
 tower-http = { version = "0.6", features = [
     "cors",
     "compression-full",
@@ -39,10 +39,11 @@ chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 thiserror = "2"
 anyhow = "1"
-moka = { version = "0.12", features = ["future"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+parking_lot = "0.12"
 
 [dev-dependencies]
-axum-test = "16"
+axum-test = "18"
 tokio = { version = "1", features = ["test-util", "macros"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"

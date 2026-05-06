@@ -1,5 +1,5 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { createClient } from "@/lib/supabase/server";
 import { env } from "@/lib/env";
 
 type FetchOptions = Omit<RequestInit, "headers"> & {
@@ -8,26 +8,13 @@ type FetchOptions = Omit<RequestInit, "headers"> & {
 
 /**
  * Server-side API client for the Axum backend.
- * Automatically forwards the Supabase access token.
+ * Forwards the Supabase access token via the official SSR client so token
+ * refresh + cookie-format changes are handled by @supabase/ssr (not by us).
  */
 export async function api<T>(path: string, options: FetchOptions = {}): Promise<T> {
-  const cookieStore = await cookies();
-
-  // Supabase SSR stores the access token in a cookie named sb-<ref>-auth-token
-  const allCookies = cookieStore.getAll();
-  const accessTokenCookie = allCookies.find(
-    (c) => c.name.startsWith("sb-") && c.name.endsWith("-auth-token")
-  );
-
-  let accessToken: string | undefined;
-  if (accessTokenCookie) {
-    try {
-      const parsed = JSON.parse(accessTokenCookie.value);
-      accessToken = parsed.access_token;
-    } catch {
-      accessToken = accessTokenCookie.value;
-    }
-  }
+  const supabase = await createClient();
+  const { data: { session } } = await supabase.auth.getSession();
+  const accessToken = session?.access_token;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
