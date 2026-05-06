@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 
 use backend::config::Config;
+use backend::jobs::Jobs;
 use backend::routes::create_router;
 use backend::state::AppState;
 use backend::telemetry;
@@ -23,6 +24,7 @@ async fn main() {
     };
     let port = config.port;
     let state = AppState::new(config).await;
+    let jobs = Jobs::spawn(state.db().clone());
     let app = create_router(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
@@ -33,6 +35,9 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("server error");
+
+    // Hyper has finished accepting; tell every cron loop to drain.
+    jobs.shutdown().await;
 }
 
 async fn shutdown_signal() {

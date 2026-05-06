@@ -48,6 +48,7 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 subtle = "2"
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # OpenTelemetry — opt-in via `cargo build --features otel`. Wires in
 # tracing-opentelemetry + the OTLP gRPC exporter so the existing tracing
