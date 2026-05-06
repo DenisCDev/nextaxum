@@ -11,6 +11,10 @@ frontend/playwright-report/
 frontend/test-results/
 frontend/blob-report/
 
+# Supabase CLI local state (generated on `supabase start`)
+supabase/.branches/
+supabase/.temp/
+
 # Environment
 .env
 .env.local

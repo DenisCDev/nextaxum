@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend build lint test migrate docker-up sqlx-prepare lockfiles install-hooks
+.PHONY: dev dev-backend dev-frontend build lint test migrate docker-up sqlx-prepare lockfiles install-hooks supabase-up supabase-down supabase-reset supabase-status
 
 # Run backend and frontend (run in separate terminals)
 dev-backend:
@@ -45,3 +45,20 @@ lockfiles:
 # https://github.com/evilmartians/lefthook/releases.
 install-hooks:
 	lefthook install
+
+# --- Local Supabase stack -----------------------------------------------------
+# Requires the Supabase CLI: https://supabase.com/docs/guides/cli/getting-started
+# `supabase start` boots Postgres+Auth+Storage+Realtime+Studio in Docker, applying
+# every backend/migrations/*.sql. Use the printed DATABASE_URL for `cargo run`.
+
+supabase-up:
+	supabase start
+
+supabase-down:
+	supabase stop
+
+supabase-reset:
+	supabase db reset
+
+supabase-status:
+	supabase status
