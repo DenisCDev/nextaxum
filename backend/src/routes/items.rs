@@ -10,6 +10,7 @@ use uuid::Uuid;
 use crate::db;
 use crate::error::AppResult;
 use crate::extractors::auth_user::AuthUser;
+use crate::extractors::idempotency::{self, IdempotencyKey};
 use crate::extractors::validated::ValidatedJson;
 use crate::models::{CreateItem, Item, PaginatedItems, PaginationParams, UpdateItem};
 use crate::state::AppState;
@@ -67,12 +68,15 @@ async fn list_items(
     }))
 }
 
-/// Create a new item owned by the caller.
+/// Create a new item owned by the caller. Honours the `Idempotency-Key`
+/// header — retried requests with the same key return the cached response
+/// instead of creating duplicate rows.
 #[utoipa::path(
     post,
     path = "/items",
     tag = "items",
     request_body = CreateItem,
+    params(("Idempotency-Key" = Option<String>, Header, description = "Opaque retry-safe key")),
     responses(
         (status = 201, body = Item),
         (status = 400, description = "Validation failure"),
@@ -84,10 +88,33 @@ async fn list_items(
 async fn create_item(
     State(state): State<AppState>,
     user: AuthUser,
+    IdempotencyKey(idem_key): IdempotencyKey,
     ValidatedJson(input): ValidatedJson<CreateItem>,
-) -> AppResult<(StatusCode, Json<Item>)> {
+) -> AppResult<Response> {
+    if let Some(key) = idem_key.as_deref() {
+        if let Some(cached) = idempotency::lookup(state.db(), user.id(), key).await? {
+            let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+            return Ok((status, Json(cached.body)).into_response());
+        }
+    }
+
     let item = db::create_item(state.db(), user.id(), &input).await?;
-    Ok((StatusCode::CREATED, Json(item)))
+    let body = serde_json::to_value(&item).unwrap_or(serde_json::Value::Null);
+
+    if let Some(key) = idem_key.as_deref() {
+        idempotency::store(
+            state.db(),
+            user.id(),
+            key,
+            "POST",
+            "/api/items",
+            StatusCode::CREATED.as_u16(),
+            &body,
+        )
+        .await?;
+    }
+
+    Ok((StatusCode::CREATED, Json(item)).into_response())
 }
 
 /// Fetch a single item with weak ETag-based conditional GET.
