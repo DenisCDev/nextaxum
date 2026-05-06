@@ -68,4 +68,18 @@ impl AppState {
     pub fn db(&self) -> &PgPool {
         &self.inner.db
     }
+
+    /// Build an AppState around a pre-existing pool. Used by integration tests
+    /// where `#[sqlx::test]` already created the database and applied migrations.
+    pub fn for_tests(pool: PgPool, config: Config) -> Self {
+        Self {
+            inner: Arc::new(AppStateInner {
+                db: pool,
+                jwt_secret: config.supabase_jwt_secret.clone(),
+                frontend_url: config.frontend_url.clone(),
+                jwks: None,
+                config,
+            }),
+        }
+    }
 }

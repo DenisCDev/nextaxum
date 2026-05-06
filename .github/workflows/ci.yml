@@ -58,7 +58,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
 
   backend:
-    name: Backend check, clippy & test
+    name: Backend fmt, clippy, build & integration tests
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
@@ -67,14 +67,32 @@ jobs:
         working-directory: backend
     env:
       SQLX_OFFLINE: "true"
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: clippy
+          components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: backend
-      - run: cargo check
-      - run: cargo clippy -- -D warnings
-      - run: cargo test --quiet
+      - run: cargo fmt --check
+      - run: cargo build --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Provision auth schema for tests
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c \
+            "CREATE SCHEMA IF NOT EXISTS auth; CREATE TABLE IF NOT EXISTS auth.users (id UUID PRIMARY KEY, email TEXT, encrypted_password TEXT, instance_id UUID, aud TEXT, role TEXT, raw_user_meta_data JSONB, created_at TIMESTAMPTZ DEFAULT now(), updated_at TIMESTAMPTZ DEFAULT now());"
+      - run: cargo test --locked --quiet

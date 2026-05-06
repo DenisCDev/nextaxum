@@ -1,20 +1,10 @@
-mod config;
-mod db;
-mod error;
-mod extractors;
-mod middleware;
-mod models;
-mod routes;
-mod state;
-
 use std::net::SocketAddr;
 
+use backend::config::Config;
+use backend::routes::create_router;
+use backend::state::AppState;
 use tokio::net::TcpListener;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-use crate::config::Config;
-use crate::routes::create_router;
-use crate::state::AppState;
 
 #[tokio::main]
 async fn main() {
