@@ -109,7 +109,23 @@ pub fn create_router(state: AppState) -> Router {
                 .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
                 .layer(PropagateRequestIdLayer::x_request_id())
                 .layer(CatchPanicLayer::new())
-                .layer(TraceLayer::new_for_http())
+                .layer(
+                    TraceLayer::new_for_http().make_span_with(|req: &axum::http::Request<_>| {
+                        // Promote x-request-id (set upstream by SetRequestIdLayer) into the
+                        // root tracing span so every log line correlates to a single request.
+                        let request_id = req
+                            .headers()
+                            .get("x-request-id")
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("");
+                        tracing::info_span!(
+                            "http_request",
+                            method = %req.method(),
+                            uri = %req.uri(),
+                            request_id = %request_id,
+                        )
+                    }),
+                )
                 // Per-IP rate limit (replaces tower::limit::RateLimitLayer which is
                 // a single shared bucket — see tokio-rs/axum#2634).
                 .layer(GovernorLayer::new(governor))
