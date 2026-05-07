@@ -21,7 +21,7 @@
     "next": "^16.2",
     "react": "^19",
     "react-dom": "^19",
-    "zod": "^3.25.76"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
