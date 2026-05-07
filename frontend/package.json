@@ -15,7 +15,7 @@
     "gen:api": "openapi-zod-client http://localhost:8080/openapi.json -o src/lib/api/generated.ts --export-schemas"
   },
   "dependencies": {
-    "@supabase/ssr": "^0.6",
+    "@supabase/ssr": "^0.10",
     "@supabase/supabase-js": "^2",
     "@t3-oss/env-nextjs": "^0.13.11",
     "next": "^16.2",
