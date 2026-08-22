@@ -1,12 +1,34 @@
-# nextaxum
+<h1 align="center">nextaxum</h1>
 
-Production-grade monorepo template for building real apps on **Next.js 16 + Axum + Supabase**.
+<p align="center">
+  <b>Production-grade monorepo template — Next.js 16 + Axum + Supabase, from auth to deploy</b><br>
+  <sub><i>"His house was perfect, whether you liked food, or sleep, or work..."</i></sub>
+</p>
+
+<p align="center">
+  <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/ci.yml/badge.svg" alt="CI">
+  <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/audit.yml/badge.svg" alt="daily cargo audit">
+  <img src="https://img.shields.io/badge/Next%2016%20%2B%20Axum%200.8-Supabase-D4A24E?labelColor=171310" alt="Next.js 16 + Axum 0.8 + Supabase">
+  <img src="https://img.shields.io/badge/RLS-enabled%20and%20forced-43A48E?labelColor=171310" alt="RLS enabled and forced">
+</p>
+
+<p align="center">
+  <img src="assets/tolkien-rivendell.jpg" width="420" alt="Rivendell — J.R.R. Tolkien's watercolour of the valley for The Hobbit">
+</p>
+
+> *"Evil things did not come into that valley."*
+> — **The Hobbit**, ch. III · *"Rivendell"*, watercolour by J.R.R. Tolkien (1937)
 
 [Versão em português](./README.md)
 
+**"Hello world" templates die at the first webhook.** RLS, JWT verification,
+idempotent POSTs, request correlation, graceful shutdown — the production part
+is exactly what templates skip, and the most expensive one to discover later,
+with users inside. nextaxum starts there.
+
 The frontend ships to Vercel, the Rust backend ships to Railway, the database is Supabase Postgres. Auth flows through Supabase; the frontend talks to Supabase directly for session management and to the Rust API for everything that needs custom logic, validation, or rate-limited access to the DB.
 
-This is not a "hello world" — every choice in here was made under production constraints (RLS, JWT verification, RLS-friendly migrations, request correlation, idempotent POSTs, tested handlers, daily security audit). You can clone it, plug in 4 env vars, and have a real app running. Or strip the example `items` resource and use it as scaffolding.
+This is not an example scaffold — every choice in here was made under production constraints (RLS, JWT verification, RLS-friendly migrations, request correlation, idempotent POSTs, tested handlers, daily security audit). You can clone it, fill in the env vars from the setup section, and have a real app running. Or strip the example `items` resource and use it as scaffolding.
 
 ---
 

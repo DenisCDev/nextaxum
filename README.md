@@ -1,12 +1,34 @@
-# nextaxum
+<h1 align="center">nextaxum</h1>
 
-Template monorepo production-grade pra construir apps reais em **Next.js 16 + Axum + Supabase**.
+<p align="center">
+  <b>Template monorepo production-grade — Next.js 16 + Axum + Supabase, do auth ao deploy</b><br>
+  <sub><i>"His house was perfect, whether you liked food, or sleep, or work..."</i></sub>
+</p>
+
+<p align="center">
+  <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/ci.yml/badge.svg" alt="CI">
+  <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/audit.yml/badge.svg" alt="cargo audit diário">
+  <img src="https://img.shields.io/badge/Next%2016%20%2B%20Axum%200.8-Supabase-D4A24E?labelColor=171310" alt="Next.js 16 + Axum 0.8 + Supabase">
+  <img src="https://img.shields.io/badge/RLS-habilitado%20e%20for%C3%A7ado-43A48E?labelColor=171310" alt="RLS habilitado e forçado">
+</p>
+
+<p align="center">
+  <img src="assets/tolkien-rivendell.jpg" width="420" alt="Rivendell — o vale de Valfenda, aquarela de J.R.R. Tolkien para O Hobbit">
+</p>
+
+> *"Evil things did not come into that valley."*
+> — **O Hobbit**, cap. III · *"Rivendell"*, aquarela de J.R.R. Tolkien (1937)
 
 [English version](./README.en.md)
 
+**Template "hello world" morre no primeiro webhook.** RLS, verificação de JWT,
+POST idempotente, correlação de requisição, shutdown gracioso — a parte de
+produção é exatamente a que os templates pulam, e a mais cara de descobrir
+depois, com usuário dentro. O nextaxum começa por ela.
+
 O frontend roda na Vercel, o backend Rust na Railway, e o banco é Supabase Postgres. Auth passa pelo Supabase; o frontend conversa direto com o Supabase pra gerenciar sessão e com a API Rust pra tudo que precisa de lógica custom, validação ou acesso ao DB com rate limit.
 
-Não é um "hello world" — cada escolha aqui foi feita pensando em produção (RLS, verificação JWT, migrations RLS-friendly, correlação de requisições, POSTs idempotentes, handlers testados, audit de segurança diário). Você clona, configura 4 env vars, e tem um app real rodando. Ou apaga o recurso `items` de exemplo e usa como scaffold.
+Não é um scaffold de exemplo — cada escolha aqui foi feita pensando em produção (RLS, verificação JWT, migrations RLS-friendly, correlação de requisições, POSTs idempotentes, handlers testados, audit de segurança diário). Você clona, preenche as env vars da seção de setup, e tem um app real rodando. Ou apaga o recurso `items` de exemplo e usa como scaffold.
 
 ---
 
