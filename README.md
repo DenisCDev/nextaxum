@@ -1,8 +1,8 @@
 <h1 align="center">nextaxum</h1>
 
 <p align="center">
-  <b>Template monorepo production-grade — Next.js 16 + Axum + Supabase, do auth ao deploy</b><br>
-  <sub><i>"His house was perfect, whether you liked food, or sleep, or work..."</i></sub>
+  <b>Template monorepo production-grade: Next.js 16 + Axum + Supabase, do auth ao deploy</b><br>
+  <sub><i>o monorepo com nome de obelisco</i></sub>
 </p>
 
 <p align="center">
@@ -13,11 +13,12 @@
 </p>
 
 <p align="center">
-  <img src="assets/tolkien-rivendell.jpg" width="420" alt="Rivendell — o vale de Valfenda, aquarela de J.R.R. Tolkien para O Hobbit">
+  <img src="assets/obelisk-axum.jpg" width="480" alt="O obelisco de Axum em uma gravura de 1809: a estela de pedra erguida no vale, desenhada por Henry Salt">
 </p>
 
-> *"Evil things did not come into that valley."*
-> — **O Hobbit**, cap. III · *"Rivendell"*, aquarela de J.R.R. Tolkien (1937)
+> *"The Obelisk at Axum"*, desenho de Henry Salt, gravura de D. Havell (1809).
+> O framework Axum leva o nome da cidade etíope do obelisco; o template leva o nome do framework.
+> De pé há mil e setecentos anos, que é o que se espera de uma fundação.
 
 [English version](./README.en.md)
 
