@@ -2,7 +2,7 @@
 
 <p align="center">
   <b>Production-grade monorepo template: Next.js 16 + Axum + Supabase, from auth to deploy</b><br>
-  <sub><i>the monorepo named after an obelisk</i></sub>
+  <sub><i>the white city that stands the siege</i></sub>
 </p>
 
 <p align="center">
@@ -13,12 +13,12 @@
 </p>
 
 <p align="center">
-  <img src="assets/obelisk-axum.jpg" width="480" alt="The Obelisk at Axum in an 1809 engraving: the stone stela standing in the valley, drawn by Henry Salt">
+  <img src="assets/mtg-minas-tirith.jpg" width="640" alt="Minas Tirith, the white city of seven levels against the mountain — art by Arthur Yuan, Tales of Middle-earth (2023)">
 </p>
 
-> *"The Obelisk at Axum"*, drawn by Henry Salt, engraved by D. Havell (1809).
-> The Axum framework is named after the obelisk's Ethiopian city; the template is named after the framework.
-> Standing for seventeen centuries, which is what you want from a foundation.
+> *"Minas Tirith"*, art by Arthur Yuan for **Magic: The Gathering**,
+> Tales of Middle-earth (2023). Seven levels, one per layer.
+> The city that stands the siege — that's what you want from a foundation.
 
 [Versão em português](./README.md)
 
