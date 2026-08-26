@@ -3,14 +3,15 @@ mod items;
 mod profile;
 mod webhooks;
 
+use std::sync::Arc;
 use std::time::Duration;
 
-use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
-use axum::http::{HeaderName, HeaderValue, Method};
-use axum::middleware as axum_mw;
 use axum::Router;
+use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
+use axum::http::{HeaderName, HeaderValue, Method, StatusCode};
+use axum::middleware as axum_mw;
 use tower::ServiceBuilder;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{GovernorLayer, governor::GovernorConfigBuilder};
 use tower_http::catch_panic::CatchPanicLayer;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
@@ -66,7 +67,7 @@ impl utoipa::Modify for SecurityAddon {
 }
 
 pub fn create_router(state: AppState) -> Router {
-    let config = &state.inner.config;
+    let config = state.inner.config.clone();
 
     // Per-IP rate limit (peer IP — for trusted-proxy deploys behind Railway/Vercel,
     // configure GovernorConfigBuilder.use_headers() to read X-Forwarded-For).
@@ -84,8 +85,18 @@ pub fn create_router(state: AppState) -> Router {
                 .parse::<HeaderValue>()
                 .expect("invalid FRONTEND_URL"),
         )
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-        .allow_headers([CONTENT_TYPE, AUTHORIZATION])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::PATCH,
+            Method::DELETE,
+        ])
+        .allow_headers([
+            CONTENT_TYPE,
+            AUTHORIZATION,
+            HeaderName::from_static("idempotency-key"),
+        ])
         .allow_credentials(true)
         .max_age(Duration::from_secs(3600));
 
@@ -133,10 +144,6 @@ pub fn create_router(state: AppState) -> Router {
                         )
                     }),
                 )
-                // Per-IP rate limit (replaces tower::limit::RateLimitLayer which is
-                // a single shared bucket — see tokio-rs/axum#2634).
-                .layer(GovernorLayer::new(governor))
-                .layer(TimeoutLayer::new(Duration::from_secs(config.request_timeout_secs)))
                 .layer(CompressionLayer::new())
                 .layer(RequestBodyLimitLayer::new(config.body_limit_bytes))
                 .layer(cors)
@@ -168,6 +175,15 @@ pub fn create_router(state: AppState) -> Router {
                 .layer(SetResponseHeaderLayer::overriding(
                     HeaderName::from_static("content-security-policy"),
                     HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
-                )),
+                ))
+                .layer(TimeoutLayer::with_status_code(
+                    StatusCode::REQUEST_TIMEOUT,
+                    Duration::from_secs(config.request_timeout_secs),
+                ))
+                // Per-IP rate limit (replaces tower::limit::RateLimitLayer which is
+                // a single shared bucket — see tokio-rs/axum#2634).
+                .layer(GovernorLayer {
+                    config: Arc::new(governor),
+                }),
         )
 }

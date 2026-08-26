@@ -3,9 +3,9 @@
 //! injected by middleware (sidestepping the JWT verification path during
 //! handler tests).
 
-use axum::middleware::{from_fn, Next};
-use axum::response::Response;
 use axum::Router;
+use axum::middleware::{Next, from_fn};
+use axum::response::Response;
 use sqlx::PgPool;
 
 use crate::config::Config;
@@ -29,19 +29,22 @@ pub async fn router_for_tests(pool: PgPool, claims: Claims) -> Router {
         request_timeout_secs: 30,
         body_limit_bytes: 1 << 20,
         items_page_size: 50,
-        rate_limit_per_sec: 1_000_000,
-        rate_limit_burst: 1_000_000,
+        rate_limit_per_sec: 100,
+        rate_limit_burst: 100,
+        webhook_secret: None,
     };
 
     let state = AppState::for_tests(pool, cfg);
     let claims = std::sync::Arc::new(claims);
 
-    create_router(state).layer(from_fn(move |mut req: axum::extract::Request, next: Next| {
-        let claims = claims.clone();
-        async move {
-            req.extensions_mut().insert((*claims).clone());
-            let resp: Response = next.run(req).await;
-            resp
-        }
-    }))
+    create_router(state).layer(from_fn(
+        move |mut req: axum::extract::Request, next: Next| {
+            let claims = claims.clone();
+            async move {
+                req.extensions_mut().insert((*claims).clone());
+                let resp: Response = next.run(req).await;
+                resp
+            }
+        },
+    ))
 }

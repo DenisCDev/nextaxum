@@ -1,5 +1,5 @@
-use axum::extract::rejection::JsonRejection;
 use axum::extract::FromRequest;
+use axum::extract::rejection::JsonRejection;
 use axum::http::Request;
 use serde::de::DeserializeOwned;
 use validator::Validate;
@@ -17,7 +17,10 @@ where
 {
     type Rejection = AppError;
 
-    async fn from_request(req: Request<axum::body::Body>, state: &S) -> Result<Self, Self::Rejection> {
+    async fn from_request(
+        req: Request<axum::body::Body>,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
         let axum::Json(value) = axum::Json::<T>::from_request(req, state)
             .await
             .map_err(|e: JsonRejection| AppError::Validation(e.body_text()))?;

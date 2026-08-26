@@ -6,23 +6,19 @@ services:
     env_file: .env
     environment:
       - RUST_LOG=backend=debug,tower_http=debug
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-
-  migrate:
-    build: ./backend
-    command: ["sqlx", "migrate", "run"]
-    env_file: .env
-    environment:
-      - DATABASE_URL=${DATABASE_URL_DIRECT}
-    restart: "no"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     ports:
       - "3000:3000"
-    env_file: .env
+    environment:
+      API_URL: http://backend:8080
+      NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     depends_on:
       backend:
         condition: service_started

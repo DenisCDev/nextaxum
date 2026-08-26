@@ -24,14 +24,14 @@ describe("login page", () => {
       "password",
     );
     expect(
-      screen.getByRole("button", { name: /sign in/i }),
+      screen.getByRole("button", { name: /^sign in$/i }),
     ).toBeInTheDocument();
   });
 
   test("requires non-empty credentials before submission", async () => {
     const user = userEvent.setup();
     render(<LoginPage />);
-    const button = screen.getByRole("button", { name: /sign in/i });
+    const button = screen.getByRole("button", { name: /^sign in$/i });
     await user.click(button);
     // Browser validation kicks in for `required` inputs — value stays empty.
     expect(

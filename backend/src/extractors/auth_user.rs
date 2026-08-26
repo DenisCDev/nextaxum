@@ -7,6 +7,7 @@ use crate::middleware::auth::Claims;
 
 /// Extracts the authenticated user from request extensions.
 /// Must be used on routes behind the `require_auth` middleware.
+#[derive(Debug)]
 pub struct AuthUser(pub Claims);
 
 impl AuthUser {

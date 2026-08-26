@@ -2,7 +2,7 @@ use axum::extract::{Request, State};
 use axum::http::header::AUTHORIZATION;
 use axum::middleware::Next;
 use axum::response::Response;
-use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -52,14 +52,10 @@ pub async fn require_auth(
         }
         // Asymmetric — requires JWKS to be configured.
         alg @ (Algorithm::RS256 | Algorithm::ES256 | Algorithm::EdDSA) => {
-            let jwks = state
-                .inner
-                .jwks
-                .as_ref()
-                .ok_or_else(|| {
-                    tracing::warn!("JWT uses {alg:?} but SUPABASE_JWKS_URL is not configured");
-                    AppError::Unauthorized
-                })?;
+            let jwks = state.inner.jwks.as_ref().ok_or_else(|| {
+                tracing::warn!("JWT uses {alg:?} but SUPABASE_JWKS_URL is not configured");
+                AppError::Unauthorized
+            })?;
             let kid = header.kid.ok_or(AppError::Unauthorized)?;
             let key_set = jwks.get().await.map_err(|e| {
                 tracing::error!(error = %e, "JWKS fetch failed");

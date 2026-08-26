@@ -1,8 +1,8 @@
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::header::{CACHE_CONTROL, ETAG, IF_NONE_MATCH};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
@@ -91,11 +91,11 @@ async fn create_item(
     IdempotencyKey(idem_key): IdempotencyKey,
     ValidatedJson(input): ValidatedJson<CreateItem>,
 ) -> AppResult<Response> {
-    if let Some(key) = idem_key.as_deref() {
-        if let Some(cached) = idempotency::lookup(state.db(), user.id(), key).await? {
-            let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
-            return Ok((status, Json(cached.body)).into_response());
-        }
+    if let Some(key) = idem_key.as_deref()
+        && let Some(cached) = idempotency::lookup(state.db(), user.id(), key).await?
+    {
+        let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
+        return Ok((status, Json(cached.body)).into_response());
     }
 
     let item = db::create_item(state.db(), user.id(), &input).await?;
@@ -141,10 +141,10 @@ async fn get_item(
     let item = db::get_item(state.db(), id, user.id()).await?;
     let etag = format!("W/\"{}\"", item.updated_at.timestamp_millis());
 
-    if let Some(if_none_match) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
-        if if_none_match == etag {
-            return Ok(StatusCode::NOT_MODIFIED.into_response());
-        }
+    if let Some(if_none_match) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok())
+        && if_none_match == etag
+    {
+        return Ok(StatusCode::NOT_MODIFIED.into_response());
     }
 
     Ok((

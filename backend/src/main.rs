@@ -31,10 +31,13 @@ async fn main() {
     let listener = TcpListener::bind(addr).await.expect("failed to bind");
     tracing::info!("listening on {addr}");
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("server error");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .expect("server error");
 
     // Hyper has finished accepting; tell every cron loop to drain.
     jobs.shutdown().await;

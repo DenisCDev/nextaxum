@@ -9,7 +9,6 @@
 //! The actual side-effects of the event (dispatching a notification,
 //! updating a row) belong in the per-provider handler called below.
 
-use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -56,7 +55,7 @@ async fn receive_webhook(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
-    body: Bytes,
+    body: String,
 ) -> AppResult<impl IntoResponse> {
     let Some(secret) = state.inner.config.webhook_secret.as_deref() else {
         return Err(AppError::Validation(
@@ -73,7 +72,7 @@ async fn receive_webhook(
 
     let mut mac =
         HmacSha256::new_from_slice(secret.as_bytes()).map_err(|_| AppError::Unauthorized)?;
-    mac.update(&body);
+    mac.update(body.as_bytes());
     let expected = mac.finalize().into_bytes();
 
     // Constant-time compare to defeat timing oracles.
@@ -86,22 +85,19 @@ async fn receive_webhook(
         .get(EVENT_ID_HEADER)
         .and_then(|v| v.to_str().ok())
         .ok_or_else(|| AppError::Validation(format!("missing {EVENT_ID_HEADER}")))?;
-    let event_type = headers
-        .get(EVENT_TYPE_HEADER)
-        .and_then(|v| v.to_str().ok());
+    let event_type = headers.get(EVENT_TYPE_HEADER).and_then(|v| v.to_str().ok());
 
-    let payload: serde_json::Value =
-        serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    let payload: serde_json::Value = serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
 
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO webhook_events (provider, event_id, event_type, payload)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (provider, event_id) DO NOTHING",
-        provider,
-        event_id,
-        event_type,
-        payload,
     )
+    .bind(&provider)
+    .bind(event_id)
+    .bind(event_type)
+    .bind(&payload)
     .execute(state.db())
     .await?;
 

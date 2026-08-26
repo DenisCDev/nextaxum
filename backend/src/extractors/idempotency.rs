@@ -48,18 +48,24 @@ pub struct CachedResponse {
     pub body: Value,
 }
 
+#[derive(sqlx::FromRow)]
+struct CachedResponseRow {
+    response_status: i16,
+    response_body: Value,
+}
+
 pub async fn lookup(
     pool: &PgPool,
     user_id: Uuid,
     key: &str,
 ) -> Result<Option<CachedResponse>, sqlx::Error> {
-    sqlx::query!(
+    sqlx::query_as::<_, CachedResponseRow>(
         "SELECT response_status, response_body
          FROM idempotency_keys
          WHERE user_id = $1 AND key = $2",
-        user_id,
-        key,
     )
+    .bind(user_id)
+    .bind(key)
     .fetch_optional(pool)
     .await
     .map(|row| {
@@ -79,18 +85,18 @@ pub async fn store(
     status: u16,
     body: &Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query!(
+    sqlx::query(
         "INSERT INTO idempotency_keys
             (user_id, key, request_method, request_path, response_status, response_body)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (user_id, key) DO NOTHING",
-        user_id,
-        key,
-        method,
-        path,
-        status as i16,
-        body,
     )
+    .bind(user_id)
+    .bind(key)
+    .bind(method)
+    .bind(path)
+    .bind(status as i16)
+    .bind(body)
     .execute(pool)
     .await
     .map(|_| ())
@@ -101,11 +107,9 @@ pub async fn cleanup_older_than(
     keep_for: chrono::Duration,
 ) -> Result<u64, sqlx::Error> {
     let cutoff = chrono::Utc::now() - keep_for;
-    let result = sqlx::query!(
-        "DELETE FROM idempotency_keys WHERE created_at < $1",
-        cutoff,
-    )
-    .execute(pool)
-    .await?;
+    let result = sqlx::query("DELETE FROM idempotency_keys WHERE created_at < $1")
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
     Ok(result.rows_affected())
 }

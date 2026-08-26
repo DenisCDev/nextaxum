@@ -34,10 +34,10 @@ impl JwksCache {
     }
 
     pub async fn get(&self) -> anyhow::Result<JwkSet> {
-        if let Some(cached) = self.inner.read().as_ref() {
-            if cached.fetched_at.elapsed() < self.ttl {
-                return Ok(cached.keys.clone());
-            }
+        if let Some(cached) = self.inner.read().as_ref()
+            && cached.fetched_at.elapsed() < self.ttl
+        {
+            return Ok(cached.keys.clone());
         }
 
         let keys: JwkSet = self

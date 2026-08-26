@@ -98,7 +98,7 @@ export function TotpEnrollment() {
           style={{ width: 180, height: 180 }}
         />
         <details>
-          <summary>Can't scan? Type this secret instead</summary>
+          <summary>Can&apos;t scan? Type this secret instead</summary>
           <code style={{ display: "block", padding: "0.5rem 0", wordBreak: "break-all" }}>
             {state.secret}
           </code>

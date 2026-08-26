@@ -7,8 +7,8 @@
 //! directly so they exercise the handler + db layer without depending on a
 //! live Supabase instance. JWT verification has its own unit tests.
 
-use axum::body::{to_bytes, Body};
-use axum::http::{header, Request, StatusCode};
+use axum::body::{Body, to_bytes};
+use axum::http::{Request, StatusCode, header};
 use backend::middleware::auth::Claims;
 use backend::test_support;
 use serde_json::Value;
@@ -55,7 +55,11 @@ async fn list_items_returns_only_caller_rows(pool: PgPool) {
         .iter()
         .map(|i| i["title"].as_str().unwrap())
         .collect();
-    assert_eq!(titles.len(), 3, "alice has exactly 3 items, bob's row is hidden");
+    assert_eq!(
+        titles.len(),
+        3,
+        "alice has exactly 3 items, bob's row is hidden"
+    );
     assert!(titles.iter().all(|t| t.starts_with("alice")));
 }
 

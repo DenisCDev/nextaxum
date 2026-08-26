@@ -75,9 +75,8 @@ impl PaginationParams {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-#[aliases(PaginatedItems = PaginatedResponse<Item>)]
-pub struct PaginatedResponse<T: Serialize + ToSchema> {
-    pub data: Vec<T>,
+pub struct PaginatedItems {
+    pub data: Vec<Item>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }

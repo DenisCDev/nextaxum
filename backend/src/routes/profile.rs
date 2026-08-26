@@ -1,5 +1,5 @@
-use axum::extract::State;
 use axum::Json;
+use axum::extract::State;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -26,17 +26,13 @@ pub fn router() -> OpenApiRouter<AppState> {
     security(("bearer" = [])),
 )]
 #[tracing::instrument(skip(state))]
-async fn get_profile(
-    State(state): State<AppState>,
-    user: AuthUser,
-) -> AppResult<Json<Profile>> {
-    let profile = sqlx::query_as!(
-        Profile,
+async fn get_profile(State(state): State<AppState>, user: AuthUser) -> AppResult<Json<Profile>> {
+    let profile = sqlx::query_as::<_, Profile>(
         "SELECT id, display_name, avatar_url, updated_at
          FROM profiles
          WHERE id = $1",
-        user.id(),
     )
+    .bind(user.id())
     .fetch_optional(state.db())
     .await?
     .ok_or_else(|| AppError::NotFound("profile not found".into()))?;
@@ -61,17 +57,16 @@ async fn update_profile(
     user: AuthUser,
     ValidatedJson(input): ValidatedJson<UpdateProfile>,
 ) -> AppResult<Json<Profile>> {
-    let profile = sqlx::query_as!(
-        Profile,
+    let profile = sqlx::query_as::<_, Profile>(
         "UPDATE profiles
          SET display_name = COALESCE($2, display_name),
              avatar_url   = COALESCE($3, avatar_url)
          WHERE id = $1
          RETURNING id, display_name, avatar_url, updated_at",
-        user.id(),
-        input.display_name,
-        input.avatar_url,
     )
+    .bind(user.id())
+    .bind(&input.display_name)
+    .bind(&input.avatar_url)
     .fetch_one(state.db())
     .await?;
     Ok(Json(profile))

@@ -1,7 +1,7 @@
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
@@ -51,14 +51,14 @@ async fn readiness(
         ));
     }
 
-    if let Some(jwks) = state.inner.jwks.as_ref() {
-        if let Err(e) = jwks.get().await {
-            tracing::warn!(error = %e, "readiness probe: JWKS unreachable");
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "status": "unavailable", "dependency": "jwks" })),
-            ));
-        }
+    if let Some(jwks) = state.inner.jwks.as_ref()
+        && let Err(e) = jwks.get().await
+    {
+        tracing::warn!(error = %e, "readiness probe: JWKS unreachable");
+        return Err((
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({ "status": "unavailable", "dependency": "jwks" })),
+        ));
     }
 
     Ok(Json(json!({ "status": "ok" })))

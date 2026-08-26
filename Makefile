@@ -1,4 +1,4 @@
-.PHONY: dev dev-backend dev-frontend build lint test migrate docker-up sqlx-prepare lockfiles install-hooks supabase-up supabase-down supabase-reset supabase-status
+.PHONY: dev dev-backend dev-frontend build lint test migrate docker-up lockfiles install-hooks supabase-up supabase-down supabase-reset supabase-status
 
 # Run backend and frontend (run in separate terminals)
 dev-backend:
@@ -28,12 +28,6 @@ migrate:
 # Docker compose
 docker-up:
 	docker compose up --build
-
-# Prepare sqlx offline cache (requires running database).
-# REQUIRED before first Docker build / first CI run on a fresh clone:
-# the .sqlx/ directory must be committed for SQLX_OFFLINE=true to work.
-sqlx-prepare:
-	cd backend && cargo sqlx prepare
 
 # Generate lock files
 lockfiles:

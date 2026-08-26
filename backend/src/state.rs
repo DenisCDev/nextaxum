@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::str::FromStr;
 
 use crate::config::Config;
@@ -26,12 +26,14 @@ impl AppState {
         // does not support prepared statements. Disable the cache so query macros
         // fall back to the simple-query path. Direct connection (5432) keeps the cache.
         // Backends should prefer the direct connection — pooler is for serverless.
-        let mut connect_opts = PgConnectOptions::from_str(&config.database_url)
-            .expect("invalid DATABASE_URL");
+        let mut connect_opts =
+            PgConnectOptions::from_str(&config.database_url).expect("invalid DATABASE_URL");
         let url_lower = config.database_url.to_lowercase();
         if url_lower.contains(":6543") || url_lower.contains("pgbouncer=true") {
             connect_opts = connect_opts.statement_cache_capacity(0);
-            tracing::warn!("transaction-mode pooler detected — prepared statement cache disabled (use direct 5432 in persistent backends)");
+            tracing::warn!(
+                "transaction-mode pooler detected — prepared statement cache disabled (use direct 5432 in persistent backends)"
+            );
         }
 
         let pool = PgPoolOptions::new()
