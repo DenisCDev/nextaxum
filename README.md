@@ -1,8 +1,7 @@
 <h1 align="center">nextaxum</h1>
 
 <p align="center">
-  <b>Template monorepo production-grade: Next.js 16 + Axum + Supabase, do auth ao deploy</b><br>
-  <sub><i>a cidade branca que aguenta o cerco</i></sub>
+  <b>Base de aplicação com Next.js 16, Axum e Supabase, da autenticação ao deploy</b>
 </p>
 
 <p align="center">
@@ -16,28 +15,30 @@
   <img src="assets/mtg-minas-tirith.jpg" width="640" alt="Minas Tirith, a cidade branca de sete níveis encostada no monte — arte de Arthur Yuan, Tales of Middle-earth (2023)">
 </p>
 
-> *"Minas Tirith"*, arte de Arthur Yuan para **Magic: The Gathering**,
-> Tales of Middle-earth (2023). Sete níveis, cada um uma camada.
-> A cidade que aguenta o cerco — é o que se espera de uma fundação.
+<p align="center">
+  <sub><i>"unconquerable by steel or fire"</i><br>
+  — <b>O Retorno do Rei</b>, livro V, capítulo I · arte de Arthur Yuan para Magic: The Gathering, Tales of Middle-earth (2023)
+</p>
 
 [English version](./README.en.md)
 
-**Template "hello world" morre no primeiro webhook.** RLS, verificação de JWT,
-POST idempotente, correlação de requisição, shutdown gracioso — a parte de
-produção é exatamente a que os templates pulam, e a mais cara de descobrir
-depois, com usuário dentro. O nextaxum começa por ela.
+O nextaxum reúne interface, API e banco em uma base pronta para evoluir. A
+interface roda em Next.js, a API em Rust com Axum e o Supabase concentra
+Postgres, autenticação, arquivos e atualizações em tempo real.
 
-O frontend roda na Vercel, o backend Rust na Railway, e o banco é Supabase Postgres. Auth passa pelo Supabase; o frontend conversa direto com o Supabase pra gerenciar sessão e com a API Rust pra tudo que precisa de lógica custom, validação ou acesso ao DB com rate limit.
-
-Não é um scaffold de exemplo — cada escolha aqui foi feita pensando em produção (RLS, verificação JWT, migrations RLS-friendly, correlação de requisições, POSTs idempotentes, handlers testados, audit de segurança diário). Você clona, preenche as env vars da seção de setup, e tem um app real rodando. Ou apaga o recurso `items` de exemplo e usa como scaffold.
+O repositório já inclui partes que costumam aparecer depois do primeiro
+protótipo: autorização por linha, verificação de token, webhooks assinados,
+cache de respostas para repetir POSTs já concluídos, identificação de
+requisições, testes e desligamento controlado. O recurso `items` mostra o fluxo
+completo e pode ser removido quando o projeto ganhar seu próprio domínio.
 
 ---
 
 ## Por que cada peça existe
 
-- **Next.js 16** pro app que o usuário vê. App Router, Server Components, Server Actions, Turbopack. Renderiza na borda da rede da Vercel.
-- **Axum 0.8** como camada de API. Tudo que precisa de computação pesada, tarefa demorada, webhook assinado, ou SQL complexo entra no serviço Rust — não em function serverless. A pilha de middleware do Tower cuida de rate limit por IP, request IDs, tracing estruturado, headers de segurança, compressão.
-- **Supabase** pra Postgres + Auth + Storage + Realtime. O backend Rust conecta direto no mesmo banco via sqlx — RLS mantém tudo seguro mesmo quando as duas camadas escrevem nas mesmas tabelas.
+- **Next.js 16** entrega a interface com App Router, Server Components e Server Actions.
+- **Axum 0.8** concentra lógica própria, tarefas longas, webhooks assinados e consultas SQL mais complexas. O Tower aplica limite por endereço da conexão, identificação de requisições, rastreamento, cabeçalhos de segurança e compressão.
+- **Supabase** reúne Postgres, autenticação, arquivos e atualizações em tempo real. Políticas de acesso por linha controlam as tabelas expostas ao cliente; a API Rust usa uma conexão própria para operações autorizadas no servidor.
 
 ---
 
@@ -93,10 +94,12 @@ Você escolhe por endpoint. CRUD simples por linha: vai direto pelo Supabase RES
 
 ### Backend (`backend/`)
 
-- Axum 0.8 com pilha completa de middleware tower-http: request ID, panic catch, tracing, rate limit por IP (tower-governor), timeout, compressão, body limit, CORS, headers de segurança (HSTS, CSP, X-Frame-Options, etc).
+- Axum 0.8 com pilha completa de middleware tower-http: request ID, panic catch, tracing, limite por endereço da conexão (tower-governor), timeout, compressão, body limit, CORS e headers de segurança (HSTS, CSP, X-Frame-Options, etc). Atrás de um proxy, o limite usa o endereço desse proxy até que o deploy configure uma extração confiável do IP original.
 - CRUD de items com paginação por cursor + GET condicional via ETag.
 - Tabela shadow de profile (`public.profiles`) com trigger `handle_new_user()` — todo signup novo ganha row automaticamente.
-- Suporte a Idempotency-Key em `POST /items` (padrão Stripe, cron de limpeza 24h).
+- `Idempotency-Key` em `POST /items` reaproveita a resposta quando a primeira
+  solicitação já terminou; chamadas concorrentes ainda não são serializadas. O
+  cache é limpo depois de 24h.
 - Receiver de webhook assinado em `POST /webhooks/{provider}` (HMAC-SHA256, comparação constant-time, dedup por `(provider, event_id)`).
 - Verificação JWT: HS256 (legado) **e** assimétrico (RS256/ES256/EdDSA) via JWKS cacheado. Algoritmo escolhido por token a partir do header.
 - Spec OpenAPI gerado pelo utoipa em compile-time. Swagger UI em `/docs`, spec raw em `/openapi.json`. Frontend regenera client tipado Zod via `npm run gen:api`.
@@ -127,7 +130,7 @@ Você escolhe por endpoint. CRUD simples por linha: vai direto pelo Supabase RES
 
 ## Setup obrigatório (mínimo pra bootar)
 
-Você precisa de um projeto Supabase (free tier basta), Node 22 e Rust stable.
+Você precisa de um projeto Supabase (free tier basta), Node 22 e Rust 1.98 ou mais recente.
 
 ### 1. Clone + install
 
@@ -135,7 +138,6 @@ Você precisa de um projeto Supabase (free tier basta), Node 22 e Rust stable.
 git clone <URL do seu fork>
 cd nextaxum
 cd frontend && npm ci && cd ..
-cd backend && cargo build && cd ..   # gera Cargo.lock — comita
 ```
 
 ### 2. Projeto Supabase
@@ -152,19 +154,16 @@ Aplica as migrations da forma que preferir:
 - **sqlx CLI**: `cd backend && DATABASE_URL=... sqlx migrate run`.
 - **Manual**: cola cada `backend/migrations/*.sql` no SQL editor do Studio em ordem.
 
-### 3. Gerar metadata sqlx offline (necessário antes do primeiro build Docker)
+### 3. Compilar o backend
 
-O backend usa macros `query!`/`query_as!` do sqlx que checam SQL em compile-time. CI e build Docker setam `SQLX_OFFLINE=true` pra não precisar de banco — mas precisam da metadata cacheada.
+As consultas usam tipos `FromRow` do sqlx e não precisam acessar o banco durante
+a compilação. O banco só precisa estar com as migrations aplicadas antes de
+iniciar a API.
 
 ```bash
 cd backend
-cargo install sqlx-cli --no-default-features --features rustls,postgres
-DATABASE_URL=postgres://... cargo sqlx prepare
-git add .sqlx/
-git commit -m "chore: refresh sqlx offline metadata"
+cargo build --locked
 ```
-
-Repete sempre que mexer numa macro `query!`/`query_as!`.
 
 ### 4. Env vars
 
@@ -204,6 +203,9 @@ Ou comando único via Docker:
 ```bash
 docker compose up --build
 ```
+
+Esse comando usa o banco e as migrations preparados nos passos 2 e 3. O
+container não aplica mudanças de schema automaticamente.
 
 ---
 
@@ -342,7 +344,6 @@ cargo run
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 cargo test                          # precisa de DATABASE_URL apontando pra Postgres
-cargo sqlx prepare                  # refresh .sqlx/ depois de mudanças em macros
 cargo build --release --locked
 cargo build --features otel         # OpenTelemetry opt-in
 
@@ -431,8 +432,6 @@ make supabase-up
 
 ## Troubleshooting
 
-**`cargo build` falha com "set DATABASE_URL"**: você não tem `.sqlx/` comitado ainda. Roda `cargo sqlx prepare` contra um banco vivo, depois comita. Ou seta `DATABASE_URL` no shell pra pular o offline mode.
-
 **Backend boota mas toda chamada de API retorna 401**: mismatch de alg JWT. Se o projeto usa chaves assimétricas, seta `SUPABASE_JWKS_URL`. Se usa HS256, garante que `SUPABASE_JWT_SECRET` bate com `Settings → API → JWT Secret`.
 
 **`sqlx::Error::Database … prepared statement … already exists`**: você tá conectando via pooler (porta 6543) em transaction mode. Troca pra direta (5432). Pra uso inevitável do pooler, o backend já desabilita o cache de prepared statements automaticamente quando vê `:6543` ou `pgbouncer=true`.
@@ -450,7 +449,7 @@ make supabase-up
 ## Versões pinadas neste template
 
 - Next.js `^16.2`, React `^19`, TypeScript `^5.7`, Node `22`
-- Rust `stable` (edition 2024 = `>=1.85`), Axum `0.8`, sqlx `0.8`, tower-http `0.6`, tower-governor `0.7`
+- Rust `>=1.98` (edition 2024), Axum `0.8`, sqlx `0.8`, tower-http `0.6`, tower-governor `0.7`
 - Supabase: managed (sem pin de versão — eles fazem continuous-deploy)
 
 A matrix do CI testa contra essas. Bumpar qualquer uma é decisão deliberada.
@@ -459,7 +458,7 @@ A matrix do CI testa contra essas. Bumpar qualquer uma é decisão deliberada.
 
 ## Licença
 
-MIT — ver [LICENSE](LICENSE) quando adicionado.
+O repositório ainda não inclui um arquivo de licença.
 
 ## Segurança
 
