@@ -91,19 +91,18 @@ async fn create_item(
     IdempotencyKey(idem_key): IdempotencyKey,
     ValidatedJson(input): ValidatedJson<CreateItem>,
 ) -> AppResult<Response> {
-    if let Some(key) = idem_key.as_deref()
-        && let Some(cached) = idempotency::lookup(state.db(), user.id(), key).await?
-    {
-        let status = StatusCode::from_u16(cached.status).unwrap_or(StatusCode::OK);
-        return Ok((status, Json(cached.body)).into_response());
-    }
-
-    let item = db::create_item(state.db(), user.id(), &input).await?;
-    let body = serde_json::to_value(&item).unwrap_or(serde_json::Value::Null);
-
     if let Some(key) = idem_key.as_deref() {
+        let mut transaction = idempotency::begin_locked(state.db(), user.id(), key).await?;
+        if let Some(cached) = idempotency::lookup(&mut *transaction, user.id(), key).await? {
+            let status = StatusCode::from_u16(cached.status).map_err(anyhow::Error::from)?;
+            transaction.commit().await?;
+            return Ok((status, Json(cached.body)).into_response());
+        }
+
+        let item = db::create_item(&mut *transaction, user.id(), &input).await?;
+        let body = serde_json::to_value(&item).map_err(anyhow::Error::from)?;
         idempotency::store(
-            state.db(),
+            &mut *transaction,
             user.id(),
             key,
             "POST",
@@ -112,8 +111,11 @@ async fn create_item(
             &body,
         )
         .await?;
+        transaction.commit().await?;
+        return Ok((StatusCode::CREATED, Json(item)).into_response());
     }
 
+    let item = db::create_item(state.db(), user.id(), &input).await?;
     Ok((StatusCode::CREATED, Json(item)).into_response())
 }
 

@@ -1,15 +1,13 @@
 //! Idempotency-Key support (RFC 9637 / Stripe convention).
 //!
 //! When a request carries `Idempotency-Key`, the extractor returns the key
-//! and a cached response (if any) so the handler can short-circuit. After
-//! the handler runs, the route helper persists `(user, key, status, body)`
-//! so a retried request returns byte-for-byte the same payload without
-//! creating a duplicate resource.
+//! to the handler. A transaction-scoped lock serializes requests for the
+//! same user and key; the item and cached response commit together.
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use serde_json::Value;
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -48,6 +46,26 @@ pub struct CachedResponse {
     pub body: Value,
 }
 
+pub async fn begin_locked<'p>(
+    pool: &'p PgPool,
+    user_id: Uuid,
+    key: &str,
+) -> Result<Transaction<'p, Postgres>, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    sqlx::query("SET LOCAL statement_timeout = '10s'")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout = '3s'")
+        .execute(&mut *transaction)
+        .await?;
+    // Hash collisions only serialize unrelated requests; lookup still uses the full key.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(format!("{user_id}:{key}"))
+        .execute(&mut *transaction)
+        .await?;
+    Ok(transaction)
+}
+
 #[derive(sqlx::FromRow)]
 struct CachedResponseRow {
     response_status: i16,
@@ -55,7 +73,7 @@ struct CachedResponseRow {
 }
 
 pub async fn lookup(
-    pool: &PgPool,
+    executor: impl PgExecutor<'_>,
     user_id: Uuid,
     key: &str,
 ) -> Result<Option<CachedResponse>, sqlx::Error> {
@@ -66,7 +84,7 @@ pub async fn lookup(
     )
     .bind(user_id)
     .bind(key)
-    .fetch_optional(pool)
+    .fetch_optional(executor)
     .await
     .map(|row| {
         row.map(|r| CachedResponse {
@@ -77,7 +95,7 @@ pub async fn lookup(
 }
 
 pub async fn store(
-    pool: &PgPool,
+    executor: impl PgExecutor<'_>,
     user_id: Uuid,
     key: &str,
     method: &str,
@@ -88,8 +106,7 @@ pub async fn store(
     sqlx::query(
         "INSERT INTO idempotency_keys
             (user_id, key, request_method, request_path, response_status, response_body)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (user_id, key) DO NOTHING",
+         VALUES ($1, $2, $3, $4, $5, $6)",
     )
     .bind(user_id)
     .bind(key)
@@ -97,7 +114,7 @@ pub async fn store(
     .bind(path)
     .bind(status as i16)
     .bind(body)
-    .execute(pool)
+    .execute(executor)
     .await
     .map(|_| ())
 }

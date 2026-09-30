@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use sqlx::PgPool;
+use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -59,7 +59,11 @@ pub async fn get_item(pool: &PgPool, id: Uuid, user_id: Uuid) -> AppResult<Item>
     .ok_or_else(|| AppError::NotFound("item not found".into()))
 }
 
-pub async fn create_item(pool: &PgPool, user_id: Uuid, input: &CreateItem) -> AppResult<Item> {
+pub async fn create_item(
+    executor: impl PgExecutor<'_>,
+    user_id: Uuid,
+    input: &CreateItem,
+) -> AppResult<Item> {
     let item = sqlx::query_as::<_, Item>(
         "INSERT INTO items (id, user_id, title, description, created_at, updated_at)
          VALUES ($1, $2, $3, $4, now(), now())
@@ -69,7 +73,7 @@ pub async fn create_item(pool: &PgPool, user_id: Uuid, input: &CreateItem) -> Ap
     .bind(user_id)
     .bind(&input.title)
     .bind(&input.description)
-    .fetch_one(pool)
+    .fetch_one(executor)
     .await?;
 
     Ok(item)
