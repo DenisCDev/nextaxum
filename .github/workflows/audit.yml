@@ -20,6 +20,7 @@ jobs:
   cargo-audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       issues: write
@@ -29,3 +30,6 @@ jobs:
         with:
           workingDirectory: backend
           createIssues: ${{ github.event_name != 'pull_request' }}
+      - name: Report dependency advisories
+        if: failure()
+        run: cargo audit --json --file backend/Cargo.lock

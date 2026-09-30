@@ -3,9 +3,8 @@
 //! `DATABASE_URL`'s superuser connection. Each database receives platform
 //! fixtures before the production migrations and application fixtures.
 //!
-//! These tests bypass the JWT middleware and inject a `Claims` extension
-//! directly so they exercise the handler + db layer without depending on a
-//! live Supabase instance. JWT verification has its own unit tests.
+//! Signed test tokens exercise the production auth middleware without a live
+//! Supabase instance. The requests also retain the real rate-limit pipeline.
 
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
