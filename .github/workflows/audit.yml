@@ -10,18 +10,41 @@ on:
       - "backend/Cargo.toml"
       - "backend/Cargo.lock"
       - ".github/workflows/audit.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/audit.yml"
   workflow_dispatch:
 
 jobs:
   cargo-audit:
     name: cargo audit
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CARGO_HTTP_TIMEOUT: 30
+      CARGO_NET_RETRY: 1
     permissions:
       contents: read
       issues: write
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify RSA is not an enabled dependency
+        working-directory: backend
+        run: |
+          cargo tree --locked --all-features --target all --prefix none --format '{p}' > "$RUNNER_TEMP/backend-dependencies.txt"
+          if grep -q '^rsa v' "$RUNNER_TEMP/backend-dependencies.txt"; then
+            echo '::error::RSA is enabled; RUSTSEC-2023-0071 cannot be excluded.'
+            exit 1
+          fi
       - uses: actions-rust-lang/audit@v1
         with:
-          working-directory: backend
-          createIssues: true
+          workingDirectory: backend
+          # SQLx records its unused MySQL driver in Cargo.lock. The preceding
+          # check fails if RSA becomes reachable under any backend feature.
+          ignore: RUSTSEC-2023-0071
+          createIssues: ${{ github.event_name != 'pull_request' }}
+      - name: Report dependency advisories
+        if: failure()
+        run: cargo audit --json --file backend/Cargo.lock
