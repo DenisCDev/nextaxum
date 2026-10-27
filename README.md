@@ -1,48 +1,49 @@
 <h1 align="center">nextaxum</h1>
 
 <p align="center">
-  <b>Base de aplicação com Next.js 16, Axum e Supabase, da autenticação ao deploy</b>
+  <b>An application foundation with Next.js 16, Axum and Supabase, from authentication to deployment</b>
 </p>
 
 <p align="center">
   <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/ci.yml/badge.svg" alt="CI">
-  <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/audit.yml/badge.svg" alt="cargo audit diário">
+  <img src="https://github.com/DenisCDev/nextaxum/actions/workflows/audit.yml/badge.svg" alt="daily cargo audit">
   <img src="https://img.shields.io/badge/Next%2016%20%2B%20Axum%200.8-Supabase-D4A24E?labelColor=171310" alt="Next.js 16 + Axum 0.8 + Supabase">
-  <img src="https://img.shields.io/badge/RLS-habilitado%20e%20for%C3%A7ado-43A48E?labelColor=171310" alt="RLS habilitado e forçado">
+  <img src="https://img.shields.io/badge/RLS-enabled%20and%20forced-43A48E?labelColor=171310" alt="RLS enabled and forced">
 </p>
 
 <p align="center">
-  <img src="assets/mtg-minas-tirith.jpg" width="640" alt="Minas Tirith, a cidade branca de sete níveis encostada no monte — arte de Arthur Yuan, Tales of Middle-earth (2023)">
+  <img src="assets/mtg-minas-tirith.jpg" width="640" alt="Minas Tirith, the white city of seven levels against the mountain — art by Arthur Yuan, Tales of Middle-earth (2023)">
 </p>
 
 <p align="center">
   <sub><i>"unconquerable by steel or fire"</i><br>
-  — <b>O Retorno do Rei</b>, livro V, capítulo I · arte de Arthur Yuan para Magic: The Gathering, Tales of Middle-earth (2023)
+  — <b>The Return of the King</b>, book V, chapter I · art by Arthur Yuan for Magic: The Gathering, Tales of Middle-earth (2023)
 </p>
 
-[English version](./README.en.md)
+<p align="center"><b>English</b> · <a href="README.pt-BR.md">Português</a></p>
 
-O nextaxum reúne interface, API e banco em uma base pronta para evoluir. A
-interface roda em Next.js, a API em Rust com Axum e o Supabase concentra
-Postgres, autenticação, arquivos e atualizações em tempo real.
+nextaxum brings the interface, API and database into one foundation that can
+grow with an application. Next.js serves the interface, Rust and Axum run the
+API, and Supabase provides Postgres, authentication, storage and realtime
+updates.
 
-O repositório já inclui partes que costumam aparecer depois do primeiro
-protótipo: autorização por linha, verificação de token, webhooks assinados,
-cache de respostas para repetir POSTs já concluídos, identificação de
-requisições, testes e desligamento controlado. O recurso `items` mostra o fluxo
-completo e pode ser removido quando o projeto ganhar seu próprio domínio.
-
----
-
-## Por que cada peça existe
-
-- **Next.js 16** entrega a interface com App Router, Server Components e Server Actions.
-- **Axum 0.8** concentra lógica própria, tarefas longas, webhooks assinados e consultas SQL mais complexas. O Tower aplica limite por endereço da conexão, identificação de requisições, rastreamento, cabeçalhos de segurança e compressão.
-- **Supabase** reúne Postgres, autenticação, arquivos e atualizações em tempo real. Políticas de acesso por linha controlam as tabelas expostas ao cliente; a API Rust usa uma conexão própria para operações autorizadas no servidor.
+The repository includes concerns that often arrive after the first prototype:
+row-level authorization, token verification, signed webhooks, response caching
+for completed POST retries, request IDs, tests and controlled shutdown. The
+`items` resource demonstrates the complete path and can be removed when the
+project gets its own domain.
 
 ---
 
-## Arquitetura
+## Why each piece is here
+
+- **Next.js 16** serves the interface with App Router, Server Components and Server Actions.
+- **Axum 0.8** handles custom logic, long-running work, signed webhooks and more complex SQL. Tower applies per-connection-address limits, request IDs, tracing, security headers and compression.
+- **Supabase** provides Postgres, authentication, storage and realtime updates. Row-level policies control tables exposed to the client; the Rust API uses its own connection for authorized server operations.
+
+---
+
+## Architecture
 
 ```
                  Browser
@@ -50,115 +51,114 @@ completo e pode ser removido quando o projeto ganhar seu próprio domínio.
            cookies (httpOnly)
                     │
               ┌─────▼─────┐
-              │  Next.js  │  proxy.ts (auth otimista) +
-              │  na       │  DAL (verifySession em cada Server Action /
+              │  Next.js  │  proxy.ts (optimistic auth) +
+              │  on       │  DAL (verifySession in every Server Action /
               │  Vercel   │  Server Component / Route Handler)
               └──┬──────┬─┘
-   Server Action │      │ fetch /api/* com bearer JWT
+   Server Action │      │ fetch /api/* with bearer JWT
                  │      │
         ┌────────▼─┐  ┌─▼──────────┐
-        │ Supabase │  │ Axum API   │  bypass de RLS via role
-        │ Auth/    │  │ na Railway │  postgres direto; tower-governor
-        │ Storage/ │  │            │  rate limit; OpenAPI em /docs
+        │ Supabase │  │ Axum API   │  RLS bypass via direct
+        │ Auth/    │  │ on Railway │  postgres role; tower-governor
+        │ Storage/ │  │            │  rate limit; OpenAPI at /docs
         │ Realtime │  └──────┬─────┘
         └────┬─────┘         │
-             │               │ sqlx (porta 5432, direta)
+             │               │ sqlx (port 5432, direct)
              │               │
              └────►  Postgres + RLS  ◄────┘
                     (Supabase)
 ```
 
-Dois caminhos pro banco:
+Two paths into the database:
 
-1. **Frontend → Supabase REST/Realtime/Storage**: protegido por RLS em cada tabela que o usuário consegue alcançar.
-2. **Frontend → Axum → Postgres**: verifica o JWT do Supabase (HS256 ou assimétrico via JWKS) e roda lógica server-side confiável no mesmo DB.
+1. **Frontend → Supabase REST/Realtime/Storage**: gated by RLS on every table the user can reach.
+2. **Frontend → Axum → Postgres**: verifies the user's Supabase JWT (HS256 or asymmetric via JWKS), then runs trusted server-side logic against the same DB.
 
-Você escolhe por endpoint. CRUD simples por linha: vai direto pelo Supabase REST. Qualquer coisa com validação não-trivial, fan-out, chamadas externas ou trabalho longo: passa pelo Axum.
+You pick per endpoint. Simple per-row CRUD: do it directly through Supabase REST. Anything with non-trivial validation, fan-out, external calls, or long-running work: route through Axum.
 
 ---
 
-## O que tem na caixa
+## What's in the box
 
 ### Frontend (`frontend/`)
 
-- App Router com Server Components, Server Actions, formulários `useActionState`.
-- `proxy.ts` (substituto do `middleware.ts` no Next 16) faz checks otimistas de auth via claims JWT — rápido, sem ida ao banco.
-- A barreira real de auth é a **DAL** (`lib/dal.ts::verifySession`). Todo Server Component, Server Action e Route Handler que toca dado privado chama ela.
-- Login: email/senha (Server Action com validação Zod) + Google OAuth (PKCE, callback em `/auth/callback`).
-- Página de enrollment de TOTP MFA em `/dashboard/mfa`.
-- Upload de avatar via Server Action pra bucket privado do Supabase Storage.
-- Lista de items que atualiza ao vivo via subscription Realtime em `postgres_changes`.
-- Env vars validadas no boot via `@t3-oss/env-nextjs` + Zod.
-- Vitest pra unit + Playwright pra E2E.
-- ESLint flat config, TypeScript strict, pronto pra Tailwind (não bundlado — sua escolha).
+- App Router with Server Components, Server Actions, `useActionState` forms.
+- `proxy.ts` (Next 16's replacement for `middleware.ts`) does optimistic auth checks via Supabase JWT claims — fast, no DB lookup.
+- Real auth boundary is the **DAL** (`lib/dal.ts::verifySession`). Every Server Component, Server Action, and Route Handler that touches private data calls it.
+- Login flows: email/password (Server Action with Zod validation) + Google OAuth (PKCE, callback at `/auth/callback`).
+- TOTP MFA enrollment page at `/dashboard/mfa`.
+- Avatar upload via Server Action to a private Supabase Storage bucket.
+- Live updating items list via Realtime subscription on `postgres_changes`.
+- Validated env vars on boot via `@t3-oss/env-nextjs` + Zod.
+- Vitest unit tests + Playwright E2E.
+- ESLint flat config, TypeScript strict, Tailwind-ready (not bundled — your call).
 
 ### Backend (`backend/`)
 
-- Axum 0.8 com pilha completa de middleware tower-http: request ID, panic catch, tracing, limite por endereço da conexão (tower-governor), timeout, compressão, body limit, CORS e headers de segurança (HSTS, CSP, X-Frame-Options, etc). Atrás de um proxy, o limite usa o endereço desse proxy até que o deploy configure uma extração confiável do IP original.
-- CRUD de items com paginação por cursor + GET condicional via ETag.
-- Tabela shadow de profile (`public.profiles`) com trigger `handle_new_user()` — todo signup novo ganha row automaticamente.
-- `Idempotency-Key` em `POST /items` reaproveita a resposta quando a primeira
-  solicitação já terminou; chamadas concorrentes ainda não são serializadas. O
-  cache é limpo depois de 24h.
-- Receiver de webhook assinado em `POST /webhooks/{provider}` (HMAC-SHA256, comparação constant-time, dedup por `(provider, event_id)`).
-- Verificação JWT: HS256 (legado) **e** assimétrico (RS256/ES256/EdDSA) via JWKS cacheado. Algoritmo escolhido por token a partir do header.
-- Spec OpenAPI gerado pelo utoipa em compile-time. Swagger UI em `/docs`, spec raw em `/openapi.json`. Frontend regenera client tipado Zod via `npm run gen:api`.
-- Health endpoints separados: `/health` (liveness, nunca toca deps) vs `/ready` (readiness, sonda DB e JWKS).
-- Loop de cron com `CancellationToken` compartilhado pra shutdown gracioso.
-- Exporter OpenTelemetry atrás da feature flag `otel`.
-- Testes de integração via `sqlx::test` contra Postgres real no CI.
+- Axum 0.8 with the full tower-http middleware stack: request ID, panic catch, tracing, per-connection-address limits (tower-governor), timeout, compression, body limit, CORS, and security headers (HSTS, CSP, X-Frame-Options, etc). Behind a proxy, the limiter sees the proxy address until the deployment configures trusted client-IP extraction.
+- Items CRUD with cursor pagination + ETag conditional GETs.
+- Profile shadow table (`public.profiles`) with `handle_new_user()` trigger so every new auth user gets a row automatically.
+- `Idempotency-Key` on `POST /items` reuses the response after the first request
+  finishes; concurrent requests are not serialized yet. Cached responses expire
+  after 24 hours.
+- Signed webhook receiver at `POST /webhooks/{provider}` (HMAC-SHA256, constant-time compare, dedup on `(provider, event_id)`).
+- JWT verification: HS256 (legacy) **and** asymmetric (RS256/ES256/EdDSA) via cached JWKS. Algorithm selected per-token from the JWT header.
+- OpenAPI spec auto-generated by utoipa. Swagger UI at `/docs`, raw spec at `/openapi.json`. The frontend regenerates a typed Zod client via `npm run gen:api`.
+- Health endpoints split: `/health` (liveness, never touches deps) vs `/ready` (readiness, probes DB and JWKS).
+- Background cron loop with shared `CancellationToken` for graceful shutdown.
+- OpenTelemetry exporter behind the `otel` feature flag.
+- sqlx::test integration tests against a real Postgres in CI.
 
-### Banco (`backend/migrations/`)
+### Database (`backend/migrations/`)
 
-- Tabela `items` com índice composto pra cursor, RLS habilitado e **forçado**, quatro políticas own-row pro role `authenticated`.
-- Tabela shadow `profiles` espelhando `auth.users`.
-- Tabelas `idempotency_keys` e `webhook_events` com PKs e índices apropriados.
-- Trigger `moddatetime` em toda tabela com `updated_at` (sem chamar `now()` no app).
-- Funções/triggers usam `SECURITY DEFINER SET search_path = ''` por orientação Supabase.
+- `items` table with cursor-friendly composite index, RLS enabled and **forced**, four own-row policies for the `authenticated` role.
+- `profiles` shadow table mirroring `auth.users`.
+- `idempotency_keys` and `webhook_events` tables with appropriate primary keys and indexes.
+- `moddatetime` trigger on every table that has `updated_at` (no app-side `now()` calls).
+- All triggers/functions use `SECURITY DEFINER SET search_path = ''` per Supabase guidance.
 
 ### Repo / Ops
 
-- GitHub Actions CI: jobs frontend e backend filtrados por path, job Playwright separado gated em variable `RUN_E2E`.
-- Workflow diário `cargo audit` que abre issue automática.
-- Dependabot pra cargo + npm + github-actions, semanal, agrupado.
-- Lefthook pre-commit (eslint + typecheck + cargo fmt + clippy) e pre-push (vitest + cargo test).
-- Docker compose pro stack local backend+frontend; config Supabase CLI (`supabase/config.toml`) pro stack local completo.
-- `vercel.json` pinando região São Paulo.
-- `.editorconfig`, `rustfmt.toml`, templates de issue/PR, CODEOWNERS, SECURITY.md, `.well-known/security.txt`.
+- GitHub Actions CI: path-filtered frontend + backend jobs, separate Playwright job gated on `RUN_E2E` repo variable.
+- Daily `cargo audit` workflow with auto-issue filing.
+- Dependabot for cargo + npm + github-actions, weekly, grouped sensibly.
+- Lefthook pre-commit (eslint + typecheck + cargo fmt + clippy) and pre-push (vitest + cargo test).
+- Docker compose for local backend+frontend; Supabase CLI config (`supabase/config.toml`) for a full local stack.
+- `vercel.json` pinning São Paulo region.
+- `.editorconfig`, `rustfmt.toml`, issue/PR templates, CODEOWNERS, SECURITY.md, `.well-known/security.txt`.
 
 ---
 
-## Setup obrigatório (mínimo pra bootar)
+## Required setup (minimum to boot)
 
-Você precisa de um projeto Supabase (free tier basta), Node 22 e Rust 1.98 ou mais recente.
+You need a Supabase project (free tier is fine), Node 22, and Rust 1.98 or newer.
 
 ### 1. Clone + install
 
 ```bash
-git clone <URL do seu fork>
+git clone <your fork URL>
 cd nextaxum
 cd frontend && npm ci && cd ..
 ```
 
-### 2. Projeto Supabase
+### 2. Supabase project
 
-Vai em https://supabase.com/dashboard/new e cria um projeto. Anota:
+Go to https://supabase.com/dashboard/new and create a project. Note:
 
 - **Project URL**: `https://<ref>.supabase.co`
 - **anon public key** + **JWT secret**: `Settings → API`
-- **Senha do DB**: `Settings → Database → Connection string`
+- **DB password**: `Settings → Database → Connection string`
 
-Aplica as migrations da forma que preferir:
+Apply migrations using whichever you prefer:
 
-- **Supabase CLI** (recomendado): `supabase link --project-ref <ref>` depois `supabase db push`. Lê `backend/migrations/*.sql` via `supabase/config.toml`.
+- **Supabase CLI** (recommended): `supabase link --project-ref <ref>` then `supabase db push`. Reads `backend/migrations/*.sql` via `supabase/config.toml`.
 - **sqlx CLI**: `cd backend && DATABASE_URL=... sqlx migrate run`.
-- **Manual**: cola cada `backend/migrations/*.sql` no SQL editor do Studio em ordem.
+- **Manual**: paste each `backend/migrations/*.sql` into the Studio SQL editor in order.
 
-### 3. Compilar o backend
+### 3. Build the backend
 
-As consultas usam tipos `FromRow` do sqlx e não precisam acessar o banco durante
-a compilação. O banco só precisa estar com as migrations aplicadas antes de
-iniciar a API.
+Queries use sqlx `FromRow` types and do not need database access during the
+build. The database only needs its migrations applied before the API starts.
 
 ```bash
 cd backend
@@ -167,26 +167,26 @@ cargo build --locked
 
 ### 4. Env vars
 
-Copia `.env.example` pra `.env` (Docker compose) ou `.env.local` (frontend dev) e preenche:
+Copy `.env.example` to `.env` (Docker compose) or `.env.local` (frontend dev) and fill:
 
 ```bash
-# Obrigatórias
+# Required
 SUPABASE_URL=https://<ref>.supabase.co
-SUPABASE_JWT_SECRET=<de Settings → API>
-DATABASE_URL=postgresql://postgres:<senha>@db.<ref>.supabase.co:5432/postgres
+SUPABASE_JWT_SECRET=<from API settings>
+DATABASE_URL=postgresql://postgres:<pwd>@db.<ref>.supabase.co:5432/postgres
 NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon key>
 
-# Obrigatórias pra ligar frontend → Axum em dev
+# Required for the frontend → Axum link in dev
 API_URL=http://localhost:8080
 FRONTEND_URL=http://localhost:3000
 ```
 
-Atenção no `DATABASE_URL`: usa a conexão **direta** (porta `5432`), não o pooler (porta `6543`). O pooler roda em transaction mode que não suporta prepared statements; sqlx depende deles. O backend desabilita o cache de prepared statements automaticamente se vê `:6543` ou `pgbouncer=true` na URL, mas a performance é melhor na conexão direta.
+Note on `DATABASE_URL`: use the **direct** connection (port `5432`), not the pooler (port `6543`). The pooler runs in transaction mode which doesn't support prepared statements; sqlx relies on them. The backend auto-disables the prepared-statement cache if it sees `:6543` or `pgbouncer=true` in the URL, but performance is better on the direct connection.
 
-### 5. Rodar
+### 5. Run
 
-Dois terminais:
+Two terminals:
 
 ```bash
 # terminal 1
@@ -196,78 +196,78 @@ cd backend && cargo run
 cd frontend && npm run dev
 ```
 
-Abre `http://localhost:3000`. O Swagger UI do backend fica em `http://localhost:8080/docs`.
+Open `http://localhost:3000`. The Swagger UI for the backend lives at `http://localhost:8080/docs`.
 
-Ou comando único via Docker:
+Or single-command via Docker:
 
 ```bash
 docker compose up --build
 ```
 
-Esse comando usa o banco e as migrations preparados nos passos 2 e 3. O
-container não aplica mudanças de schema automaticamente.
+This command uses the database and migrations prepared in steps 2 and 3. The
+container does not apply schema changes automatically.
 
 ---
 
-## Setup opcional
+## Optional setup
 
-Cada seção é independente — escolhe as que precisar.
+Each section is self-contained — pick the ones you need.
 
-### Stack Supabase local (dev offline completo)
+### Local Supabase stack (full offline dev)
 
-Pula o projeto cloud durante desenvolvimento.
+Skip the cloud project entirely while developing.
 
 ```bash
-make supabase-up        # sobe Postgres + Auth + Storage + Realtime + Studio
-make supabase-status    # imprime URLs locais e a anon key temporária
-make supabase-down      # para tudo
-make supabase-reset     # dropa o DB e reaplica migrations
+make supabase-up        # boots Postgres + Auth + Storage + Realtime + Studio
+make supabase-status    # prints local URLs and the temp anon key
+make supabase-down      # stops everything
+make supabase-reset     # drops the DB and reapplies migrations
 ```
 
-Studio em `http://localhost:54323`. Aponta seu `.env` pras URLs que `make supabase-status` imprime.
+Studio at `http://localhost:54323`. Set your `.env` to the URLs `make supabase-status` prints.
 
-### Verificação JWT assimétrico (recomendado pra projetos novos)
+### Asymmetric JWT verification (recommended for new projects)
 
-A Supabase recomenda chaves assimétricas (RS256/ES256) em vez do secret HS256 legado. O backend suporta os dois — algoritmo escolhido por token a partir do header.
+Supabase recommends asymmetric signing keys (RS256/ES256) over the legacy HS256 secret. The backend supports both — algorithm is picked per-token from the JWT header.
 
-Pra trocar:
+To switch:
 
-1. Dashboard Supabase → `Authentication → Signing Keys` → habilita RS256 ou ES256.
-2. Coloca no `.env`:
+1. Supabase dashboard → `Authentication → Signing Keys` → enable RS256 or ES256.
+2. Set in your `.env`:
    ```bash
    SUPABASE_JWKS_URL=https://<ref>.supabase.co/auth/v1/.well-known/jwks.json
    ```
-3. Reinicia o backend. Tokens HS256 existentes continuam válidos durante a transição.
+3. Restart the backend. Existing HS256 tokens still validate during the transition.
 
-### Login Google OAuth
+### Google OAuth login
 
-1. Dashboard Supabase → `Authentication → Providers → Google` → habilita, cola o client ID + secret OAuth.
-2. Adiciona `https://<seu-domínio-prod>/auth/callback` (e `http://localhost:3000/auth/callback` pra dev) em `Redirect URLs`.
-3. O botão "Sign in with Google" em `/login` já tá ligado.
+1. Supabase dashboard → `Authentication → Providers → Google` → enable, paste your OAuth client ID + secret.
+2. Add `https://<your-prod-domain>/auth/callback` (and `http://localhost:3000/auth/callback` for dev) to `Redirect URLs`.
+3. The "Sign in with Google" button on `/login` is already wired.
 
 ### TOTP MFA
 
-Já ligado em `/dashboard/mfa`. Não precisa de setup além do Supabase ter MFA habilitado por padrão.
+Already wired at `/dashboard/mfa`. No setup needed beyond Supabase enabling MFA by default.
 
-### Upload de avatar
+### Avatar upload
 
-A migration cria um bucket `avatars` privado com RLS. Sem setup adicional. Usuários sobem via `/dashboard` (botão renderizado pelo `avatar-upload.tsx`).
+The migration creates a private `avatars` bucket with RLS. No further setup. Users upload via `/dashboard` (button rendered by `avatar-upload.tsx`).
 
-### Subscriptions Realtime
+### Realtime subscriptions
 
-A migration `20240107000000` já adiciona a tabela `items` na publication `supabase_realtime`. Abre `/dashboard` em duas abas pra confirmar que eventos INSERT/UPDATE/DELETE chegam sem refetch.
+Migration `20240107000000` already adds the `items` table to the `supabase_realtime` publication. Open `/dashboard` in two tabs to verify INSERT/UPDATE/DELETE events propagate without a refetch.
 
-### Webhooks (Stripe / GitHub / genérico)
+### Webhooks (Stripe / GitHub / generic)
 
-O receiver em `POST /webhooks/{provider}` fica desabilitado até você setar:
+The receiver at `POST /webhooks/{provider}` is disabled until you set:
 
 ```bash
-WEBHOOK_SECRET=<32+ bytes de entropia>
+WEBHOOK_SECRET=<32+ bytes of entropy>
 ```
 
-O remetente precisa computar `HMAC-SHA256(secret, body_cru)` e mandar em `X-Signature: sha256=<hex>`. Mais `X-Event-Id` (usado pra dedup) e opcionalmente `X-Event-Type`. Olha `backend/src/routes/webhooks.rs` pra onde plugar dispatch por provider.
+The sender must compute `HMAC-SHA256(secret, raw_body)` and put it in `X-Signature: sha256=<hex>`. Plus `X-Event-Id` (used for dedup) and optionally `X-Event-Type`. See `backend/src/routes/webhooks.rs` for where to add per-provider dispatch.
 
-### Export de tracing OpenTelemetry
+### OpenTelemetry tracing export
 
 ```bash
 cd backend
@@ -275,67 +275,67 @@ cargo build --features otel
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 cargo run --features otel
 ```
 
-Manda spans (com correlação por request_id já ligada) pra qualquer collector OTLP — Honeycomb, Tempo, Jaeger, OpenTelemetry Collector. Sem a feature `otel`, nenhuma dessas crates compila junto.
+Sends spans (with the request_id correlation already wired) to any OTLP-compatible collector — Honeycomb, Tempo, Jaeger, OpenTelemetry Collector. Without the `otel` feature, none of those crates compile in.
 
 ### Pre-commit hooks (Lefthook)
 
-Pega quebra de CI localmente antes do push.
+Catches CI breakage locally before push.
 
 ```bash
-# Instala lefthook uma vez: npm i -g lefthook  OU  baixa de
+# Install lefthook once: npm i -g lefthook  OR  download from
 # https://github.com/evilmartians/lefthook/releases
 
 make install-hooks
 ```
 
-Hooks rodam em `git commit` (eslint, typecheck, cargo fmt, clippy) e `git push` (vitest, cargo test).
+Hooks now run on `git commit` (eslint, typecheck, cargo fmt, clippy) and `git push` (vitest, cargo test).
 
-### CI E2E com Playwright
+### CI E2E with Playwright
 
-1 Variable + 4 Secrets em `Settings → Secrets and variables → Actions`:
+Repo Variable + 4 Secrets at `Settings → Secrets and variables → Actions`:
 
-| Onde | Nome | Valor |
+| Where | Name | Value |
 |---|---|---|
 | Variable | `RUN_E2E` | `true` |
-| Secret | `E2E_SUPABASE_URL` | URL de um projeto Supabase **staging** |
-| Secret | `E2E_SUPABASE_ANON_KEY` | anon key desse projeto |
-| Secret | `E2E_TEST_USER_EMAIL` | email de usuário de teste pré-criado |
-| Secret | `E2E_TEST_USER_PASSWORD` | senha desse usuário |
+| Secret | `E2E_SUPABASE_URL` | URL of a **staging** Supabase project |
+| Secret | `E2E_SUPABASE_ANON_KEY` | anon key of that project |
+| Secret | `E2E_TEST_USER_EMAIL` | email of a pre-created test user |
+| Secret | `E2E_TEST_USER_PASSWORD` | password for that user |
 
-O job `frontend-e2e` só roda quando `RUN_E2E=true`. Caso contrário, é skipped silenciosamente e você ainda roda Playwright local com as mesmas envs.
+The `frontend-e2e` job runs only when `RUN_E2E=true`. Otherwise it's skipped silently and you can still run Playwright locally with the same envs.
 
-### Deploy em produção
+### Production deploy
 
 **Frontend (Vercel)**:
 
-1. Importa o repo, define **Root Directory** como `frontend`.
-2. Adiciona env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `API_URL` (URL Railway).
-3. `vercel.json` já pina região `gru1` (São Paulo). Muda se sua Railway está em outra região.
+1. Import the repo, set **Root Directory** to `frontend`.
+2. Add env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `API_URL` (your Railway URL).
+3. `vercel.json` already pins region `gru1` (São Paulo). Change if your Railway is elsewhere.
 
 **Backend (Railway)**:
 
-1. Novo projeto → Deploy from GitHub → escolhe esse repo, define Root Directory pra `/backend`.
-2. Env vars: `DATABASE_URL` (direta, 5432), `SUPABASE_JWT_SECRET`, `FRONTEND_URL` (URL Vercel), opcionalmente `SUPABASE_JWKS_URL`, `WEBHOOK_SECRET`.
-3. Healthcheck path é `/ready` (definido em `railway.toml`).
+1. New project → Deploy from GitHub → pick this repo, set Root Directory to `/backend`.
+2. Env vars: `DATABASE_URL` (direct, 5432), `SUPABASE_JWT_SECRET`, `FRONTEND_URL` (your Vercel URL), optionally `SUPABASE_JWKS_URL`, `WEBHOOK_SECRET`.
+3. Healthcheck path is `/ready` (set in `railway.toml`).
 
-**Banco (Supabase)**:
+**Database (Supabase)**:
 
-Aplica migrations via `supabase db push` ou cola SQL no Studio. Confirma que RLS está habilitado em `items` e `profiles` (deveria estar, mas verifica).
+Apply migrations via `supabase db push` or paste SQL into Studio. Confirm RLS is enabled on `items` and `profiles` (it should be, but verify).
 
 ---
 
-## Comandos comuns
+## Common commands
 
 ```bash
 # Frontend
 cd frontend
-npm run dev            # localhost:3000 com Turbopack
+npm run dev            # localhost:3000 with Turbopack
 npm run lint
 npm run typecheck
-npm run test:run       # vitest, run único
+npm run test:run       # vitest, single run
 npm run test           # vitest watch
-npm run test:e2e       # playwright (precisa das envs E2E_TEST_USER_*)
-npm run gen:api        # regenera client tipado a partir de /openapi.json
+npm run test:e2e       # playwright (needs E2E_TEST_USER_* envs)
+npm run gen:api        # regenerate typed client from /openapi.json
 npm run build
 
 # Backend
@@ -343,9 +343,9 @@ cd backend
 cargo run
 cargo fmt
 cargo clippy --all-targets -- -D warnings
-cargo test                          # precisa de DATABASE_URL apontando pra Postgres
+cargo test                          # needs DATABASE_URL pointing at a Postgres
 cargo build --release --locked
-cargo build --features otel         # OpenTelemetry opt-in
+cargo build --features otel         # opt-in OpenTelemetry
 
 # Repo
 make install-hooks
@@ -355,65 +355,65 @@ make supabase-up
 
 ---
 
-## Mapa de arquivos
+## File map
 
 ```
 .
 ├── frontend/
 │   ├── src/
-│   │   ├── app/                       Rotas App Router
-│   │   │   ├── auth/callback/route.ts Code exchange OAuth
-│   │   │   ├── dashboard/             Protegida — items, MFA, avatar
-│   │   │   └── login/                 Email/senha + Google
+│   │   ├── app/                       App Router routes
+│   │   │   ├── auth/callback/route.ts OAuth code exchange
+│   │   │   ├── dashboard/             Protected — items, MFA, avatar
+│   │   │   └── login/                 Email/password + Google
 │   │   ├── lib/
-│   │   │   ├── api/{client,items}.ts  Wrapper fetch server-side pro Axum
-│   │   │   ├── dal.ts                 verifySession (barreira real de auth)
-│   │   │   ├── env.ts                 Env validada por Zod (boot falha rápido)
+│   │   │   ├── api/{client,items}.ts  Server-side fetch wrapper for Axum
+│   │   │   ├── dal.ts                 verifySession (real auth boundary)
+│   │   │   ├── env.ts                 Zod-validated env (boot fails fast)
 │   │   │   └── supabase/{browser,server,proxy}.ts
-│   │   └── proxy.ts                   Middleware do Next 16 (auth otimista)
+│   │   └── proxy.ts                   Next 16's middleware (optimistic auth)
 │   ├── __tests__/                     Vitest
 │   ├── e2e/                           Playwright
-│   ├── eslint.config.mjs              Flat config (Next 16 removeu `next lint`)
+│   ├── eslint.config.mjs              Flat config (Next 16 dropped `next lint`)
 │   ├── vitest.config.mts
 │   ├── playwright.config.ts
-│   ├── next.config.ts                 Headers de segurança + typedRoutes
+│   ├── next.config.ts                 Security headers + typedRoutes
 │   └── vercel.json
 │
 ├── backend/
 │   ├── src/
-│   │   ├── main.rs                    Entry point (layout lib + bin)
-│   │   ├── lib.rs                     Re-exports pros testes de integração
+│   │   ├── main.rs                    Entry point (lib + bin layout)
+│   │   ├── lib.rs                     Re-exports for integration tests
 │   │   ├── config.rs                  Result<Config, ConfigError>
 │   │   ├── state.rs                   AppState (pool, JWKS cache)
 │   │   ├── error.rs                   AppError → IntoResponse
-│   │   ├── telemetry.rs               Init de tracing (consciente de otel)
-│   │   ├── jobs/                      Cron de background
+│   │   ├── telemetry.rs               Tracing init (otel-aware)
+│   │   ├── jobs/                      Background cron
 │   │   ├── middleware/
-│   │   │   ├── auth.rs                Verificação JWT (HS256 + JWKS)
-│   │   │   └── jwks.rs                Fetcher JWKS cacheado
+│   │   │   ├── auth.rs                JWT verify (HS256 + JWKS)
+│   │   │   └── jwks.rs                Cached JWKS fetcher
 │   │   ├── extractors/
 │   │   │   ├── auth_user.rs
 │   │   │   ├── idempotency.rs
 │   │   │   └── validated.rs
-│   │   ├── models/                    Derives sqlx + utoipa
-│   │   ├── db/                        Helpers de query
+│   │   ├── models/                    sqlx + utoipa derives
+│   │   ├── db/                        Query helpers
 │   │   ├── routes/
-│   │   │   ├── mod.rs                 Montagem OpenApiRouter + Swagger UI
+│   │   │   ├── mod.rs                 OpenApiRouter assembly + Swagger UI
 │   │   │   ├── health.rs              /health + /ready
-│   │   │   ├── items.rs               CRUD /api/items
+│   │   │   ├── items.rs               /api/items CRUD
 │   │   │   ├── profile.rs             /api/profile
 │   │   │   └── webhooks.rs            /webhooks/{provider}
-│   │   └── test_support.rs            Helpers pra tests/
-│   ├── tests/                         Testes #[sqlx::test]
-│   ├── migrations/                    Arquivos SQL numerados
+│   │   └── test_support.rs            Helpers for tests/
+│   ├── tests/                         #[sqlx::test] integration tests
+│   ├── migrations/                    Numbered SQL files
 │   ├── Cargo.toml
 │   ├── rustfmt.toml
 │   ├── Dockerfile
 │   └── railway.toml
 │
-├── supabase/config.toml               Stack CLI local
+├── supabase/config.toml               Local CLI stack
 ├── docker-compose.yml
-├── lefthook.yml                       Hooks pre-commit / pre-push
+├── lefthook.yml                       Pre-commit / pre-push hooks
 ├── .github/
 │   ├── workflows/{ci.yml,audit.yml}
 │   ├── dependabot.yml
@@ -432,34 +432,34 @@ make supabase-up
 
 ## Troubleshooting
 
-**Backend boota mas toda chamada de API retorna 401**: mismatch de alg JWT. Se o projeto usa chaves assimétricas, seta `SUPABASE_JWKS_URL`. Se usa HS256, garante que `SUPABASE_JWT_SECRET` bate com `Settings → API → JWT Secret`.
+**Backend boots but every API call returns 401**: JWT alg mismatch. If the project uses asymmetric keys, set `SUPABASE_JWKS_URL`. If it uses HS256, make sure `SUPABASE_JWT_SECRET` matches `Settings → API → JWT Secret`.
 
-**`sqlx::Error::Database … prepared statement … already exists`**: você tá conectando via pooler (porta 6543) em transaction mode. Troca pra direta (5432). Pra uso inevitável do pooler, o backend já desabilita o cache de prepared statements automaticamente quando vê `:6543` ou `pgbouncer=true`.
+**`sqlx::Error::Database … prepared statement … already exists`**: you're connecting via the pooler (port 6543) in transaction mode. Switch to direct (5432). For unavoidable pooler use, the backend already disables the prepared-statement cache automatically when it sees `:6543` or `pgbouncer=true`.
 
-**Eventos Realtime não chegam**: confirma que a migration que rodou `ALTER PUBLICATION supabase_realtime ADD TABLE items;` foi aplicada. Studio mostra publications em `Database → Publications`.
+**Realtime events don't arrive**: confirm the migration that ran `ALTER PUBLICATION supabase_realtime ADD TABLE items;` was applied. The Studio shows publications under `Database → Publications`.
 
-**Playwright skipa todo teste**: `E2E_TEST_USER_EMAIL` ou `E2E_TEST_USER_PASSWORD` não setados. O spec auto-skipa quando não tem — seta ou roda com `RUN_E2E=true` no CI.
+**Playwright skips every test**: `E2E_TEST_USER_EMAIL` or `E2E_TEST_USER_PASSWORD` not set. The spec auto-skips when those are missing — set them or run with `RUN_E2E=true` in CI.
 
-**Build Vercel falha em `next lint`**: você está em Next 16 mas usando o script antigo. Puxa do template — `package.json` já tem `eslint .` no lugar.
+**Vercel build fails on `next lint`**: you're on Next 16 but using the old script. Pull from this template — `package.json` already has `eslint .` instead.
 
-**Testes falham com "schema auth does not exist"**: testes rodam contra um Postgres stub no CI que inclui uma `auth.users` falsa; localmente você precisa do Supabase rodando (`make supabase-up`) ou aplicar o mesmo CREATE SCHEMA. O workflow CI (`.github/workflows/ci.yml`) faz isso no step "Provision auth schema for tests".
+**Tests fail with "schema auth does not exist"**: tests run against a stub Postgres in CI that includes a fake `auth.users` table; locally you need either Supabase running (`make supabase-up`) or the same CREATE SCHEMA statement applied. The CI workflow (`.github/workflows/ci.yml`) does this in the "Provision auth schema for tests" step.
 
 ---
 
-## Versões pinadas neste template
+## Versions pinned in this template
 
 - Next.js `^16.2`, React `^19`, TypeScript `^5.7`, Node `22`
 - Rust `>=1.98` (edition 2024), Axum `0.8`, sqlx `0.8`, tower-http `0.6`, tower-governor `0.7`
-- Supabase: managed (sem pin de versão — eles fazem continuous-deploy)
+- Supabase: managed (no version pin — they're continuous-deploy)
 
-A matrix do CI testa contra essas. Bumpar qualquer uma é decisão deliberada.
+The CI matrix tests against these. Bumping any of them is a deliberate decision.
 
 ---
 
-## Licença
+## License
 
-O repositório ainda não inclui um arquivo de licença.
+This repository does not include a license file yet.
 
-## Segurança
+## Security
 
-Ver [.github/SECURITY.md](.github/SECURITY.md) pra política de disclosure.
+See [.github/SECURITY.md](.github/SECURITY.md) for disclosure policy.
